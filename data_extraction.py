@@ -6,24 +6,15 @@ source_filter = ['GOLD', '1000']
 fully_curable_filter = [0, 1]
 partially_curable_filter = [0, 1]
 related_language_filter = [0, 1]
-training_or_testing_filter = 'TRAINING'
 type_of_data = 'expression data'
 
 # File paths
 input_file_path = 'expression_sentence_datasets.tsv'
-output_file_path = 'fine_tuned_training_data_expression.jsonl'
+training_output_file_path = 'fine_tuned_training_data_expression.jsonl'
+testing_output_file_path = 'fine_tuned_testing_data_expression.jsonl'
 
 # Load the TSV file
 df = pd.read_csv(input_file_path, sep='\t')
-
-# Filter the DataFrame based on the configuration
-filtered_df = df[
-    (df['SOURCE'].isin(source_filter)) &
-    (df['FULLY_CURATABLE'].isin(fully_curable_filter)) &
-    (df['PARTIALLY_CURATABLE'].isin(partially_curable_filter)) &
-    (df['RELATED_LANGUAGE'].isin(related_language_filter)) &
-    (df['TRAINING_OR_TESTING'] == training_or_testing_filter)
-]
 
 # Function to create the assistant content based on curatable values
 def create_assistant_content(row):
@@ -52,21 +43,45 @@ def create_assistant_content(row):
         else:
             return "This sentence does not contain fully or partially curatable data or terms related to curation."
 
-# Create the structured data
-structured_data = []
-for _, row in filtered_df.iterrows():
-    entry = {
-        "messages": [
-            {"role": "system", "content": f"This GPT assistant is an expert biocurator and sentence-level classifier for {type_of_data}."},
-            {"role": "user", "content": row['SENTENCE']},
-            {"role": "assistant", "content": create_assistant_content(row)}
-        ]
-    }
-    structured_data.append(entry)
+# Function to filter the DataFrame and create structured data
+def filter_and_create_structured_data(df, training_or_testing_filter):
+    filtered_df = df[
+        (df['SOURCE'].isin(source_filter)) &
+        (df['FULLY_CURATABLE'].isin(fully_curable_filter)) &
+        (df['PARTIALLY_CURATABLE'].isin(partially_curable_filter)) &
+        (df['RELATED_LANGUAGE'].isin(related_language_filter)) &
+        (df['TRAINING_OR_TESTING'] == training_or_testing_filter)
+    ]
+    
+    structured_data = []
+    for _, row in filtered_df.iterrows():
+        entry = {
+            "messages": [
+                {"role": "system", "content": f"This GPT assistant is an expert biocurator and sentence-level classifier for {type_of_data}."},
+                {"role": "user", "content": row['SENTENCE']},
+                {"role": "assistant", "content": create_assistant_content(row)}
+            ]
+        }
+        structured_data.append(entry)
+    
+    return structured_data
 
-# Save the structured data to a JSONL file
-with open(output_file_path, 'w') as output_file:
-    for entry in structured_data:
+# Generate training data
+training_data = filter_and_create_structured_data(df, 'TRAINING')
+
+# Save the training data to a JSONL file
+with open(training_output_file_path, 'w') as output_file:
+    for entry in training_data:
         output_file.write(json.dumps(entry) + '\n')
 
-print(f"Structured data has been saved to {output_file_path}")
+print(f"Training data has been saved to {training_output_file_path}")
+
+# Generate testing data
+testing_data = filter_and_create_structured_data(df, 'TESTING')
+
+# Save the testing data to a JSONL file
+with open(testing_output_file_path, 'w') as output_file:
+    for entry in testing_data:
+        output_file.write(json.dumps(entry) + '\n')
+
+print(f"Testing data has been saved to {testing_output_file_path}")
