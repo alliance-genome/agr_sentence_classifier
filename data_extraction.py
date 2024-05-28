@@ -2,7 +2,7 @@ import pandas as pd
 import json
 
 # Configuration variables
-source_filter = ['GOLD', '1000', 'NEGATIVE']
+source_filter = ['GOLD', '1000']
 fully_curable_filter = [0, 1]
 partially_curable_filter = [0, 1]
 related_language_filter = [0, 1]
@@ -11,7 +11,7 @@ type_of_data = 'expression data'
 
 # File paths
 input_file_path = 'expression_sentence_datasets.tsv'
-output_file_path = 'fine_tuned_training_data_expression.json'
+output_file_path = 'fine_tuned_training_data_expression.jsonl'
 
 # Load the TSV file
 df = pd.read_csv(input_file_path, sep='\t')
@@ -64,10 +64,9 @@ for _, row in filtered_df.iterrows():
     }
     structured_data.append(entry)
 
-# Save the structured data to a JSON file
+# Save the structured data to a JSONL file
 with open(output_file_path, 'w') as output_file:
     for entry in structured_data:
-        json.dump(entry, output_file)
-        output_file.write('\n')
+        output_file.write(json.dumps(entry) + '\n')
 
 print(f"Structured data has been saved to {output_file_path}")
