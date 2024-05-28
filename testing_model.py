@@ -1,4 +1,6 @@
-import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=api_key)
 import json
 import sys
 
@@ -10,7 +12,6 @@ if len(sys.argv) != 2:
 api_key = sys.argv[1]
 
 # Set your OpenAI API key
-openai.api_key = api_key
 
 # Configuration variables
 type_of_data = 'expression data'
@@ -31,7 +32,7 @@ def classify_sentence(content):
     fully = "fully curatable data" in content
     partially = "partially curatable data" in content
     related = "terms related to curation" in content
-    
+
     if fully and partially:
         if related:
             return json.dumps({"result": "This sentence contains both fully and partially curatable data as well as terms related to curation."})
@@ -75,23 +76,21 @@ functions = [
 def test_model(testing_data, model_name):
     correct = 0
     total = len(testing_data)
-    
+
     for entry in testing_data:
         messages = [
             {"role": "system", "content": assistant_description},
             {"role": "user", "content": entry["messages"][1]["content"]}
         ]
         expected_response = entry["messages"][-1]["content"]
-        
-        response = openai.ChatCompletion.create(
-            model=model_name,
-            messages=messages,
-            functions=functions,
-            function_call={"name": "classify_sentence"}
-        )
-        
-        function_call_response = json.loads(response.choices[0].message["content"])["result"]
-        assistant_response = response.choices[0].message["content"].strip()
+
+        response = client.chat.completions.create(model=model_name,
+        messages=messages,
+        functions=functions,
+        function_call={"name": "classify_sentence"})
+
+        function_call_response = json.loads(response.choices[0].message.content).result
+        assistant_response = response.choices[0].message.content.strip()
 
         if function_call_response == expected_response:
             correct += 1
@@ -100,7 +99,7 @@ def test_model(testing_data, model_name):
             print(f"Expected: {expected_response}")
             print(f"Got: {function_call_response}")
             print("-" * 50)
-    
+
     accuracy = correct / total * 100
     print(f"Accuracy: {accuracy:.2f}%")
 
