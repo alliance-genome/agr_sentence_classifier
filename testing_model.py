@@ -133,9 +133,11 @@ def test_model(testing_data, model_name, verbose):
         expected_response = entry["messages"][-1]["content"]
 
         # Retry logic for unexpected responses
-        for _ in range(5):  # Try up to 5 times
+        retry_count = 0
+        while retry_count < 5:
             completion = chat_completion_request(messages=messages, tools=tools)
             if completion is None:
+                retry_count += 1
                 continue
 
             try:
@@ -172,7 +174,6 @@ def test_model(testing_data, model_name, verbose):
                     else:
                         true_negatives += 1
                         result["classification"] = "true_negative"
-                    break  # Exit the retry loop if a valid response is received
                 else:
                     if verbose:
                         print(f"Sentence: {messages[1]['content']}")
@@ -191,11 +192,14 @@ def test_model(testing_data, model_name, verbose):
                         unexpected_responses.append(function_call_response)
                         if verbose:
                             print(f"Unexpected response: {function_call_response}")
+
                 results.append(result)
+                break  # Exit the retry loop if a valid response is received
             except ValueError as e:
                 if verbose:
                     print(f"An error occurred while processing the completion: {e}")
                     print(f"Messages: {json.dumps(messages, indent=2)}")
+                retry_count += 1  # Increment retry count on unexpected responses
                 continue  # Retry on unexpected responses
             except Exception as e:
                 if verbose:
@@ -206,17 +210,16 @@ def test_model(testing_data, model_name, verbose):
     accuracy = correct / total * 100
     precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
     recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
 
     print(f"Accuracy: {accuracy:.2f}%")
     print(f"Precision: {precision:.2f}")
     print(f"Recall: {recall:.2f}")
+    print(f"F1 Score: {f1_score:.2f}")
+    print(f"True Positives: {true_positives}")
+    print(f"True Negatives: {true_negatives}")
     print(f"False Positives: {false_positives}")
     print(f"False Negatives: {false_negatives}")
-
-    # if unexpected_responses:
-    #     print("\nUnexpected responses:")
-    #     for response in unexpected_responses:
-    #         print(response)
 
     # Save results to TSV file
     df = pd.DataFrame(results)
