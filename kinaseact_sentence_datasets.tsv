@@ -1080,7 +1080,7 @@ NSC-34 cells (Cedarlane Laboratories, Burlington, NC) were cultured in DMEM/Ham 
 This discrepancy could be attributed to methodological differences between the studies.	0	0	0	1000	TRAINING
 Sequentially, the decoder g assimilates the condensed feature set L and morphs it in the output layer for a reconstruction of the input (eq (3)) (Fig. 2).	0	0	0	1000	TRAINING
 Components of each binding reaction are denoted above each gel.	0	0	0	1000	TRAINING
-The slowly migrating bands of Bora observed with FLAG antibody correspond to phosphorylated forms of the protein.	0	1	0	1000	TESTING
+The slowly migrating bands of Bora observed with FLAG antibody correspond to phosphorylated forms of the protein.	0	1	1	1000	TESTING
 (d) GST pull-down assays using each subtype of GST-14-3-3 proteins form mitotic cell extract.	0	0	0	1000	TESTING
 The variants that included either the ectodomain (E) or peri-membrane (P) from Robo1, but not both (robo1E-sax3PC, robo1EC-sax3P, sax3E-robo1PC, sax3EC-robo1P), displayed intermediate levels of commissural clearance (Figure 3,  D, F, G, andI).	0	0	0	1000	TRAINING
 Similarly, because nsy-7 (encoding a homeodomain-like TF that controls the AWC ON fate) arose later than die-1 (which controls the AWC OFF fate), the AWC OFF fate may be the ancestral state (SI Appendix, Fig. S17B).	0	0	0	1000	TESTING

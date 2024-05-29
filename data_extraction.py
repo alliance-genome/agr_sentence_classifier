@@ -7,11 +7,11 @@ fully_curable_filter = [0, 1]
 partially_curable_filter = [0, 1]
 related_language_filter = [0, 1]
 
-type_of_data = 'protein kinase activity'
+type_of_data = 'gene expression'
 type_of_data_filename = type_of_data.replace(' ', '_')
 
 # File paths
-input_file_path = 'kinaseact_sentence_datasets.tsv'
+input_file_path = 'expression_sentence_datasets.tsv'
 training_output_file_path = f'fine_tuned_training_data_expression_{type_of_data_filename}.jsonl'
 testing_output_file_path = f'fine_tuned_testing_data_expression_{type_of_data_filename}.jsonl'
 

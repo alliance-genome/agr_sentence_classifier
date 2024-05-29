@@ -34,13 +34,13 @@ api_key = sys.argv[api_key_index]
 client = OpenAI(api_key=api_key)
 
 # Configuration variables
-type_of_data = 'expression data'
+type_of_data = 'protein kinase activity'
 type_of_data_filename = type_of_data.replace(' ', '_')
-model_name = 'ft:gpt-3.5-turbo-0125:alliance-of-genome-resources:expression:9Tt6sT60'  # Replace with your fine-tuned model name
+model_name = 'ft:gpt-3.5-turbo-0125:alliance-of-genome-resources:kinase:9UKNqfdZ'  # Replace with your fine-tuned model name
 assistant_description = f"This GPT assistant is an expert biocurator and sentence-level classifier for {type_of_data}."
 
 # File paths
-testing_output_file_path = 'fine_tuned_testing_data_expression.jsonl'
+testing_output_file_path = 'fine_tuned_testing_data_expression_protein_kinase_activity.jsonl'
 output_file_path = f'classification_results_{type_of_data_filename}.tsv'
 unexpected_responses_file_path = f'unexpected_responses_{type_of_data_filename}.txt'
 
@@ -63,9 +63,13 @@ tools = [
                             "This sentence does not contain fully or partially curatable data or terms related to curation."
                         ],
                         "description": "The classification result of the sentence."
+                    },
+                    "reasoning": {
+                        "type": "string",
+                        "description": "The reasoning behind the sentence classification."
                     }
                 },
-                "required": ["content"]
+                "required": ["content", "reasoning"]
             }
         }
     }
@@ -126,9 +130,11 @@ def test_model(testing_data, model_name, verbose):
 
     for entry in tqdm(testing_data, desc="Processing", unit="sentence"):
         user_message = f"Please classify the content of this sentence in terms of its possibility of curation: {entry['messages'][1]['content']}"
+        reasoning_message = "Please explain the reasoning for the curation classification for this sentence."
         messages = [
             {"role": "system", "content": assistant_description},
-            {"role": "user", "content": user_message}
+            {"role": "user", "content": user_message},
+            {"role": "user", "content": reasoning_message}
         ]
         expected_response = entry["messages"][-1]["content"]
 
@@ -150,18 +156,23 @@ def test_model(testing_data, model_name, verbose):
                 if not tool_calls:
                     raise ValueError("No function call was made by the model.")
                     
-                function_call_response = json.loads(tool_calls[0].function.arguments)["content"]
+                function_call_response = json.loads(tool_calls[0].function.arguments)
+                content = function_call_response["content"]
+                reasoning = function_call_response["reasoning"]
+                
                 if verbose:
-                    print(f"Function call response: {function_call_response}")
+                    print(f"Function call response: {content}")
+                    print(f"Reasoning: {reasoning}")
 
                 # Use the classify_sentence function to categorize the response
-                response_category = classify_sentence(function_call_response)
+                response_category = classify_sentence(content)
                 expected_category = classify_sentence(expected_response)
 
                 result = {
                     "sentence": entry['messages'][1]['content'],
                     "expected_response": expected_response,
-                    "assistant_response": function_call_response,
+                    "assistant_response": content,
+                    "reasoning": reasoning,
                     "result_category": "correct" if response_category == expected_category else "incorrect",
                     "classification": ""
                 }
@@ -178,7 +189,7 @@ def test_model(testing_data, model_name, verbose):
                     if verbose:
                         print(f"Sentence: {messages[1]['content']}")
                         print(f"Expected: {expected_response}")
-                        print(f"Got: {function_call_response}")
+                        print(f"Got: {content}")
                         print("-" * 50)
 
                     if response_category["result"] == "curatable":
@@ -188,10 +199,10 @@ def test_model(testing_data, model_name, verbose):
                         false_negatives += 1
                         result["classification"] = "false_negative"
 
-                    if function_call_response not in [entry["messages"][-1]["content"] for entry in testing_data]:
-                        unexpected_responses.append(function_call_response)
+                    if content not in [entry["messages"][-1]["content"] for entry in testing_data]:
+                        unexpected_responses.append(content)
                         if verbose:
-                            print(f"Unexpected response: {function_call_response}")
+                            print(f"Unexpected response: {content}")
 
                 results.append(result)
                 break  # Exit the retry loop if a valid response is received
