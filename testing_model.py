@@ -218,19 +218,19 @@ def test_model(testing_data, model_name, verbose):
                     print(f"Messages: {json.dumps(messages, indent=2)}")
                 sys.exit(1)  # Halt on exceptions
 
-    accuracy = correct / total * 100
-    precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
-    recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
-    f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
+    # accuracy = correct / total * 100
+    # precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
+    # recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
+    # f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
 
-    print(f"Accuracy: {accuracy:.2f}%")
-    print(f"Precision: {precision:.2f}")
-    print(f"Recall: {recall:.2f}")
-    print(f"F1 Score: {f1_score:.2f}")
-    print(f"True Positives: {true_positives}")
-    print(f"True Negatives: {true_negatives}")
-    print(f"False Positives: {false_positives}")
-    print(f"False Negatives: {false_negatives}")
+    # print(f"Accuracy: {accuracy:.2f}%")
+    # print(f"Precision: {precision:.2f}")
+    # print(f"Recall: {recall:.2f}")
+    # print(f"F1 Score: {f1_score:.2f}")
+    # print(f"True Positives: {true_positives}")
+    # print(f"True Negatives: {true_negatives}")
+    # print(f"False Positives: {false_positives}")
+    # print(f"False Negatives: {false_negatives}")
 
     # Save results to TSV file
     df = pd.DataFrame(results)
