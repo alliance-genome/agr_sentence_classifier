@@ -18,8 +18,8 @@ def calculate_metrics(tp, fp, fn, tn):
 
 # Initialize counters for the three classes
 metrics = {
-    "fully_curatable": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
     "curatable": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
+    "partially_curatable": {"tp": 0, "fp": 0, "fn": 0, "tn": 0},
     "language_related": {"tp": 0, "fp": 0, "fn": 0, "tn": 0}
 }
 
@@ -40,38 +40,38 @@ for index, row in df.iterrows():
     expected = row['expected_response']
     assistant = row['assistant_response']
 
-    # Fully curatable
+    # Curatable (fully curatable only)
     if fully_curatable_condition in expected:
         if fully_curatable_condition in assistant:
-            metrics["fully_curatable"]["tp"] += 1
-        else:
-            metrics["fully_curatable"]["fn"] += 1
-    else:
-        if fully_curatable_condition in assistant:
-            metrics["fully_curatable"]["fp"] += 1
-        else:
-            metrics["fully_curatable"]["tn"] += 1
-
-    # Curatable (fully or partially)
-    if fully_curatable_condition in expected or partially_curatable_condition in expected:
-        if fully_curatable_condition in assistant or partially_curatable_condition in assistant:
             metrics["curatable"]["tp"] += 1
         else:
             metrics["curatable"]["fn"] += 1
     else:
-        if fully_curatable_condition in assistant or partially_curatable_condition in assistant:
+        if fully_curatable_condition in assistant:
             metrics["curatable"]["fp"] += 1
         else:
             metrics["curatable"]["tn"] += 1
 
-    # Language related
-    if language_related_condition in expected:
-        if language_related_condition in assistant:
+    # Partially curatable (fully or partially curatable)
+    if fully_curatable_condition in expected or partially_curatable_condition in expected:
+        if fully_curatable_condition in assistant or partially_curatable_condition in assistant:
+            metrics["partially_curatable"]["tp"] += 1
+        else:
+            metrics["partially_curatable"]["fn"] += 1
+    else:
+        if fully_curatable_condition in assistant or partially_curatable_condition in assistant:
+            metrics["partially_curatable"]["fp"] += 1
+        else:
+            metrics["partially_curatable"]["tn"] += 1
+
+    # Language related (fully, partially curatable, or language related)
+    if fully_curatable_condition in expected or partially_curatable_condition in expected or language_related_condition in expected:
+        if fully_curatable_condition in assistant or partially_curatable_condition in assistant or language_related_condition in assistant:
             metrics["language_related"]["tp"] += 1
         else:
             metrics["language_related"]["fn"] += 1
     else:
-        if language_related_condition in assistant:
+        if fully_curatable_condition in assistant or partially_curatable_condition in assistant or language_related_condition in assistant:
             metrics["language_related"]["fp"] += 1
         else:
             metrics["language_related"]["tn"] += 1
