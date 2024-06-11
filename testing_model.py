@@ -34,15 +34,16 @@ api_key = sys.argv[api_key_index]
 client = OpenAI(api_key=api_key)
 
 # Configuration variables
-type_of_data = 'protein kinase activity'
+type_of_data = 'gene expression'
 type_of_data_filename = type_of_data.replace(' ', '_')
-model_name = 'ft:gpt-3.5-turbo-0125:alliance-of-genome-resources:kinase:9UKNqfdZ'  # Replace with your fine-tuned model name
+# model_name = 'ft:gpt-3.5-turbo-0125:alliance-of-genome-resources:expression-fifth:9Uchtfy3'  # Replace with your fine-tuned model name
+model_name = 'gpt-4o-2024-05-13'
 assistant_description = f"This GPT assistant is an expert biocurator and sentence-level classifier for {type_of_data}."
 
 # File paths
-testing_output_file_path = 'fine_tuned_testing_data_expression_protein_kinase_activity.jsonl'
-output_file_path = f'classification_results_{type_of_data_filename}.tsv'
-unexpected_responses_file_path = f'unexpected_responses_{type_of_data_filename}.txt'
+testing_output_file_path = 'fine_tuned_testing_data_expression_gene_expression.jsonl'
+output_file_path = f'classification_results_{type_of_data_filename}_gpt-4o.tsv'
+unexpected_responses_file_path = f'unexpected_responses_{type_of_data_filename}_gpt-4o.txt'
 
 # Define the function that returns the structured response
 tools = [
@@ -63,13 +64,9 @@ tools = [
                             "This sentence does not contain fully or partially curatable data or terms related to curation."
                         ],
                         "description": "The classification result of the sentence."
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "The reasoning behind the sentence classification."
                     }
                 },
-                "required": ["content", "reasoning"]
+                "required": ["content"]
             }
         }
     }
@@ -130,11 +127,9 @@ def test_model(testing_data, model_name, verbose):
 
     for entry in tqdm(testing_data, desc="Processing", unit="sentence"):
         user_message = f"Please classify the content of this sentence in terms of its possibility of curation: {entry['messages'][1]['content']}"
-        reasoning_message = "Please explain the reasoning for the curation classification for this sentence."
         messages = [
             {"role": "system", "content": assistant_description},
             {"role": "user", "content": user_message},
-            {"role": "user", "content": reasoning_message}
         ]
         expected_response = entry["messages"][-1]["content"]
 
@@ -158,11 +153,9 @@ def test_model(testing_data, model_name, verbose):
                     
                 function_call_response = json.loads(tool_calls[0].function.arguments)
                 content = function_call_response["content"]
-                reasoning = function_call_response["reasoning"]
                 
                 if verbose:
                     print(f"Function call response: {content}")
-                    print(f"Reasoning: {reasoning}")
 
                 # Use the classify_sentence function to categorize the response
                 response_category = classify_sentence(content)
@@ -172,7 +165,6 @@ def test_model(testing_data, model_name, verbose):
                     "sentence": entry['messages'][1]['content'],
                     "expected_response": expected_response,
                     "assistant_response": content,
-                    "reasoning": reasoning,
                     "result_category": "correct" if response_category == expected_category else "incorrect",
                     "classification": ""
                 }
@@ -217,6 +209,11 @@ def test_model(testing_data, model_name, verbose):
                     print(f"An error occurred while processing the completion: {e}")
                     print(f"Messages: {json.dumps(messages, indent=2)}")
                 sys.exit(1)  # Halt on exceptions
+
+        # Check if no valid response was received after retries
+        if retry_count == 5:
+            print(f"Failed to get a valid response for sentence: {entry['messages'][1]['content']}")
+            sys.exit(1)  # Exit the program if no valid response is received
 
     # accuracy = correct / total * 100
     # precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0

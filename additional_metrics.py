@@ -3,7 +3,7 @@ import pandas as pd
 # Define file path
 type_of_data = 'gene expression' # Ensure this matches the file naming convention in your main script
 type_of_data_filename = type_of_data.replace(' ', '_')  
-output_file_path = f'classification_results_{type_of_data_filename}.tsv'
+output_file_path = f'classification_results_{type_of_data_filename}_3.tsv'
 
 # Load the TSV file
 df = pd.read_csv(output_file_path, sep='\t')
