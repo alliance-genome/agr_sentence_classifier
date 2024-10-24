@@ -3,7 +3,7 @@
 Overview
 --------
 
-This script performs sentence-level classification using OpenAI's GPT models and APIs. It is designed to evaluate the performance of a fine-tuned model on a dataset related to biological data types. The script reads testing data, sends classification requests to the model, and computes performance metrics such as accuracy, precision, recall, and F1 score.
+This script performs sentence-level classification using OpenAI's GPT models and APIs. It is designed to evaluate the performance of a fine-tuned model on a dataset related to biological data types. The script reads testing data, sends classification requests to the model, and computes performance metrics such as accuracy, precision, recall, and F1 score. Additional scripts used to prepare the data can be found in the `additional_scripts` folder.
 
 Prerequisites
 -------------
