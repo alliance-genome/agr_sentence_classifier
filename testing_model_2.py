@@ -37,39 +37,33 @@ client = OpenAI(api_key=api_key)
 type_of_data = 'gene expression'
 type_of_data_filename = type_of_data.replace(' ', '_')
 model_name = 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:expression-first:A4SuCivz'  # Replace with your fine-tuned model name
-# model_name = 'gpt-4o-2024-05-13'
 assistant_description = f"This GPT assistant is an expert biocurator and sentence-level classifier for {type_of_data}."
 
 # File paths
 testing_output_file_path = 'fine_tuned_testing_data_expression_gene_expression.jsonl'
-output_file_path = f'classification_results_{type_of_data_filename}_gpt4o-5.tsv'
-unexpected_responses_file_path = f'unexpected_responses_{type_of_data_filename}_gpt4o-5.txt'
+output_file_path = f'classification_results_{type_of_data_filename}_gpt4o-1.tsv'
+unexpected_responses_file_path = f'unexpected_responses_{type_of_data_filename}_gpt4o-1.txt'
 
-# Define the function that returns the structured response
-tools = [
+# Define the functions parameter for the request
+functions = [
     {
-        "type": "function",
-        "function": {
-            "name": "classify_sentence",
-            "description": "Classify the sentence based on curatable data types.",
-            "strict": True,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "content": {
-                        "type": "string",
-                        "enum": [
-                            "This sentence contains both fully and partially curatable data as well as terms related to curation.",
-                            "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
-                            "This sentence does not contain fully or partially curatable data but does contain terms related to curation.",
-                            "This sentence does not contain fully or partially curatable data or terms related to curation."
-                        ],
-                        "description": "The classification result of the sentence."
-                    }
-                },
-                "required": ["content"],
-                "additionalProperties": False
-            }
+        "name": "classify_sentence",
+        "description": "Classify the sentence based on curatable data types.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "enum": [
+                        "This sentence contains both fully and partially curatable data as well as terms related to curation.",
+                        "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
+                        "This sentence does not contain fully or partially curatable data but does contain terms related to curation.",
+                        "This sentence does not contain fully or partially curatable data or terms related to curation."
+                    ],
+                    "description": "The classification result of the sentence."
+                }
+            },
+            "required": ["content"]
         }
     }
 ]
@@ -86,13 +80,13 @@ if subset:
 
 # Utility function to make chat completion requests with retry logic
 @retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(3))
-def chat_completion_request(messages, tools, model=model_name):
+def chat_completion_request(messages, functions, model=model_name):
     try:
         response = client.chat.completions.create(
             model=model,
             messages=messages,
-            tools=tools,
-            tool_choice={"type": "function", "function": {"name": "classify_sentence"}}
+            functions=functions,
+            function_call={"name": "classify_sentence"}
         )
         return response
     except Exception as e:
@@ -138,7 +132,7 @@ def test_model(testing_data, model_name, verbose):
         # Retry logic for unexpected responses
         retry_count = 0
         while retry_count < 20:
-            completion = chat_completion_request(messages=messages, tools=tools)
+            completion = chat_completion_request(messages=messages, functions=functions)
             if completion is None:
                 retry_count += 1
                 continue
@@ -149,13 +143,14 @@ def test_model(testing_data, model_name, verbose):
                     completion_dict = completion.to_dict()  # Convert the response to a dictionary
                     print(json.dumps(completion_dict, indent=2))  # Print the full completion object
 
-                tool_calls = completion.choices[0].message.tool_calls
+                # Access the function call response
+                tool_calls = completion.choices[0].message.tool_calls  # Adjusted access method
                 if not tool_calls:
                     raise ValueError("No function call was made by the model.")
-                    
-                function_call_response = json.loads(tool_calls[0].function.arguments)
+
+                function_call_response = json.loads(tool_calls[0]["function"]["arguments"])
                 content = function_call_response["content"]
-                
+
                 if verbose:
                     print(f"Function call response: {content}")
 
@@ -216,20 +211,6 @@ def test_model(testing_data, model_name, verbose):
         if retry_count == 20:
             print(f"Failed to get a valid response for sentence: {entry['messages'][1]['content']}")
             sys.exit(1)  # Exit the program if no valid response is received
-
-    # accuracy = correct / total * 100
-    # precision = true_positives / (true_positives + false_positives) if true_positives + false_positives > 0 else 0
-    # recall = true_positives / (true_positives + false_negatives) if true_positives + false_negatives > 0 else 0
-    # f1_score = 2 * (precision * recall) / (precision + recall) if precision + recall > 0 else 0
-
-    # print(f"Accuracy: {accuracy:.2f}%")
-    # print(f"Precision: {precision:.2f}")
-    # print(f"Recall: {recall:.2f}")
-    # print(f"F1 Score: {f1_score:.2f}")
-    # print(f"True Positives: {true_positives}")
-    # print(f"True Negatives: {true_negatives}")
-    # print(f"False Positives: {false_positives}")
-    # print(f"False Negatives: {false_negatives}")
 
     # Save results to TSV file
     df = pd.DataFrame(results)

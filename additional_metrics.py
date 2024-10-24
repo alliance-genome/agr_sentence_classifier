@@ -1,9 +1,9 @@
 import pandas as pd
 
 # Define file path
-type_of_data = 'gene expression' # Ensure this matches the file naming convention in your main script
+type_of_data = 'protein kinase activity' # Ensure this matches the file naming convention in your main script
 type_of_data_filename = type_of_data.replace(' ', '_')  
-output_file_path = f'classification_results_{type_of_data_filename}_3.tsv'
+output_file_path = f'classification_results_{type_of_data_filename}_gpt4o-5.tsv'
 
 # Load the TSV file
 df = pd.read_csv(output_file_path, sep='\t')
@@ -76,20 +76,6 @@ for index, row in df.iterrows():
         else:
             metrics["language_related"]["tn"] += 1
 
-    # Combined metrics
-    if expected == not_curatable_condition and assistant == not_curatable_condition:
-        combined_tn += 1
-    elif row['result_category'] == 'correct':
-        if row['classification'] in ['true_positive', 'true_negative']:
-            combined_tp += 1
-        else:
-            combined_tn += 1
-    else:
-        if row['classification'] == 'false_positive':
-            combined_fp += 1
-        else:
-            combined_fn += 1
-
 # Calculate and print the metrics for each class
 for key in metrics:
     tp, fp, fn, tn = metrics[key]["tp"], metrics[key]["fp"], metrics[key]["fn"], metrics[key]["tn"]
@@ -103,6 +89,12 @@ for key in metrics:
     print(f"  False Positives: {fp}")
     print(f"  False Negatives: {fn}")
     print()
+
+# Initialize counters for combined metrics
+combined_tp = sum([metrics[category]["tp"] for category in metrics])
+combined_fp = sum([metrics[category]["fp"] for category in metrics])
+combined_fn = sum([metrics[category]["fn"] for category in metrics])
+combined_tn = sum([metrics[category]["tn"] for category in metrics])
 
 # Calculate and print combined metrics
 combined_precision, combined_recall, combined_f1_score, combined_accuracy = calculate_metrics(combined_tp, combined_fp, combined_fn, combined_tn)

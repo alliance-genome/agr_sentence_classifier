@@ -3,7 +3,7 @@ import numpy as np
 from statsmodels.stats.power import TTestIndPower
 
 # Load the results
-df = pd.read_csv('classification_results_protein_kinase_activity.tsv', sep='\t')
+df = pd.read_csv('classification_results_protein_kinase_activity_gpt4o-1.tsv', sep='\t')
 
 # Define a function to calculate power
 def calculate_power(effect_size, nobs, alpha=0.05):
