@@ -23,21 +23,22 @@ TASKS = {
 # Helper Functions
 # ------------------------------
 
-def calculate_metrics(tp, fp, fn, tn):
+def calculate_metrics(tp, fp, fn):
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall    = tp / (tp + fn) if (tp + fn) > 0 else 0
     f1_score  = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-    accuracy  = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
-    return precision, recall, f1_score, accuracy
+    return precision, recall, f1_score
 
 def determine_task(response):
+    response = response.strip().lower()
     for task_name, exact_phrase in TASKS.items():
-        if response.strip() == exact_phrase:
+        if exact_phrase.lower() in response:
             return task_name
     return "Unknown"
 
 def process_tsv_file(file_path, verbose=False):
-    counts = {task: {"TP": 0, "FP": 0, "FN": 0, "TN": 0} for task in TASKS.keys()}
+    counts = {task: {"TP": 0, "FP": 0, "FN": 0} for task in TASKS.keys()}
+    skipped_rows = 0
     try:
         df = pd.read_csv(file_path, sep='\t')
         logging.info(f"Processing file: {file_path} with {len(df)} entries.")
@@ -57,11 +58,9 @@ def process_tsv_file(file_path, verbose=False):
         expected_task = determine_task(expected)
         predicted_task = determine_task(assistant)
 
-        if expected_task == "Unknown":
-            logging.warning(f"Row {index+1}: Expected response does not match any defined task.")
-            continue
-        if predicted_task == "Unknown":
-            logging.warning(f"Row {index+1}: Assistant response does not match any defined task.")
+        if expected_task == "Unknown" or predicted_task == "Unknown":
+            logging.warning(f"Row {index+1}: Skipped due to Unknown task.")
+            skipped_rows += 1
             continue
 
         for task_name in TASKS.keys():
@@ -76,9 +75,7 @@ def process_tsv_file(file_path, verbose=False):
                 if predicted_task == task_name:
                     counts[task_name]["FP"] += 1
                     classification = "FP"
-                else:
-                    counts[task_name]["TN"] += 1
-                    classification = "TN"
+                # No need to track TN as it's not used
 
             if verbose:
                 logging.info(f"Task: {task_name.replace('_', ' ').title()}")
@@ -86,6 +83,9 @@ def process_tsv_file(file_path, verbose=False):
                 logging.info(f"  Assistant: \"{assistant}\"")
                 logging.info(f"  Classification: {classification}")
                 logging.info("-" * 60)
+
+    if skipped_rows > 0:
+        logging.info(f"Total Skipped Rows in {file_path}: {skipped_rows}")
 
     return counts
 
@@ -95,52 +95,42 @@ def calculate_run_metrics(counts):
         tp = count["TP"]
         fp = count["FP"]
         fn = count["FN"]
-        tn = count["TN"]
-        precision, recall, f1_score, accuracy = calculate_metrics(tp, fp, fn, tn)
+        precision, recall, f1_score = calculate_metrics(tp, fp, fn)
         run_metrics[task_name] = {
             "TP": tp,
             "FP": fp,
             "FN": fn,
-            "TN": tn,
             "Precision": precision,
             "Recall": recall,
-            "F1_Score": f1_score,
-            "Accuracy": accuracy
+            "F1_Score": f1_score
         }
     return run_metrics
 
 def calculate_mean_std(metrics_per_run, data_type, verbose=False):
     summary = {}
-    # We'll also store the per-run metrics for detailed math logging at the end.
-    detailed_math = []
-
     for task_name in TASKS.keys():
         precisions = [run_metrics[task_name]["Precision"] for run_metrics in metrics_per_run]
         recalls = [run_metrics[task_name]["Recall"] for run_metrics in metrics_per_run]
         f1_scores = [run_metrics[task_name]["F1_Score"] for run_metrics in metrics_per_run]
-        accuracies = [run_metrics[task_name]["Accuracy"] for run_metrics in metrics_per_run]
 
-        # Store per-run details for logging after we compute mean and std
-        run_count = len(metrics_per_run)
-        if verbose and run_count > 0:
+        if verbose and len(metrics_per_run) > 0:
             logging.info(f"\nDetailed Math for {task_name.replace('_',' ').title()} in {data_type}:")
             for i, run_metrics_dict in enumerate(metrics_per_run, 1):
                 tp = run_metrics_dict[task_name]["TP"]
                 fp = run_metrics_dict[task_name]["FP"]
                 fn = run_metrics_dict[task_name]["FN"]
-                tn = run_metrics_dict[task_name]["TN"]
 
                 # Log per-run counts
-                logging.info(f"Run {i}: TP={tp}, FP={fp}, FN={fn}, TN={tn}")
+                logging.info(f"Run {i}: TP={tp}, FP={fp}, FN={fn}")
 
                 # Precision math
-                if tp+fp > 0:
+                if tp + fp > 0:
                     logging.info(f"  Precision (Run {i}) = TP / (TP + FP) = {tp} / ({tp}+{fp}) = {tp/(tp+fp):.3f}")
                 else:
                     logging.info(f"  Precision (Run {i}) = 0 (no positive predictions)")
 
                 # Recall math
-                if tp+fn > 0:
+                if tp + fn > 0:
                     logging.info(f"  Recall (Run {i}) = TP / (TP + FN) = {tp} / ({tp}+{fn}) = {tp/(tp+fn):.3f}")
                 else:
                     logging.info(f"  Recall (Run {i}) = 0 (no actual positives)")
@@ -153,14 +143,7 @@ def calculate_mean_std(metrics_per_run, data_type, verbose=False):
                 else:
                     logging.info(f"  F1 Score (Run {i}) = 0 (no positive predictions or actual positives)")
 
-                # Accuracy math
-                total = tp+fp+fn+tn
-                if total > 0:
-                    logging.info(f"  Accuracy (Run {i}) = (TP + TN) / (TP + TN + FP + FN) = ({tp}+{tn}) / ({tp}+{tn}+{fp}+{fn}) = {accuracies[i-1]:.3f}")
-                else:
-                    logging.info(f"  Accuracy (Run {i}) = 0 (no samples)")
-
-            # Now compute mean and std dev for each metric
+            # Compute mean and std dev for each metric
             # Precision
             if len(precisions) > 0:
                 mean_p = statistics.mean(precisions)
@@ -206,21 +189,6 @@ def calculate_mean_std(metrics_per_run, data_type, verbose=False):
                 std_f1 = 0
                 logging.info("No F1 values.")
 
-            # Accuracy
-            if len(accuracies) > 0:
-                mean_a = statistics.mean(accuracies)
-                logging.info(f"\nAccuracy Mean = Average of {accuracies} = {mean_a:.3f}")
-                if len(accuracies) > 1:
-                    std_a = statistics.stdev(accuracies)
-                    logging.info(f"Accuracy Std Dev = Stdev of {accuracies} = {std_a:.3f}")
-                else:
-                    std_a = 0
-                    logging.info("Only one run, no Std Dev for Accuracy.")
-            else:
-                mean_a = 0
-                std_a = 0
-                logging.info("No accuracy values.")
-
         else:
             # If not verbose or no runs
             mean_p = statistics.mean(precisions) if precisions else 0
@@ -229,8 +197,6 @@ def calculate_mean_std(metrics_per_run, data_type, verbose=False):
             std_r = statistics.stdev(recalls) if len(recalls) > 1 else 0
             mean_f1 = statistics.mean(f1_scores) if f1_scores else 0
             std_f1 = statistics.stdev(f1_scores) if len(f1_scores) > 1 else 0
-            mean_a = statistics.mean(accuracies) if accuracies else 0
-            std_a = statistics.stdev(accuracies) if len(accuracies) > 1 else 0
 
         summary[task_name] = {
             "Precision_mean": round(mean_p, 3),
@@ -238,9 +204,7 @@ def calculate_mean_std(metrics_per_run, data_type, verbose=False):
             "Recall_mean": round(mean_r, 3),
             "Recall_std_dev": round(std_r, 3),
             "F1_Score_mean": round(mean_f1, 3),
-            "F1_Score_std_dev": round(std_f1, 3),
-            "Accuracy_mean": round(mean_a, 3),
-            "Accuracy_std_dev": round(std_a, 3)
+            "F1_Score_std_dev": round(std_f1, 3)
         }
 
     return summary
@@ -255,12 +219,10 @@ def print_metrics_summary(metrics_summary, data_type):
         logging.info(f"  Precision: {stats['Precision_mean']} (± {stats['Precision_std_dev']})")
         logging.info(f"  Recall: {stats['Recall_mean']} (± {stats['Recall_std_dev']})")
         logging.info(f"  F1 Score: {stats['F1_Score_mean']} (± {stats['F1_Score_std_dev']})")
-        logging.info(f"  Accuracy: {stats['Accuracy_mean']} (± {stats['Accuracy_std_dev']})")
 
         print(f"  Precision: {stats['Precision_mean']} (± {stats['Precision_std_dev']})")
         print(f"  Recall: {stats['Recall_mean']} (± {stats['Recall_std_dev']})")
         print(f"  F1 Score: {stats['F1_Score_mean']} (± {stats['F1_Score_std_dev']})")
-        print(f"  Accuracy: {stats['Accuracy_mean']} (± {stats['Accuracy_std_dev']})")
     logging.info("")
     print("")
 
@@ -274,9 +236,7 @@ def save_metrics_summary(metrics_summary, data_type):
             "Recall_mean": stats["Recall_mean"],
             "Recall_std_dev": stats["Recall_std_dev"],
             "F1_Score_mean": stats["F1_Score_mean"],
-            "F1_Score_std_dev": stats["F1_Score_std_dev"],
-            "Accuracy_mean": stats["Accuracy_mean"],
-            "Accuracy_std_dev": stats["Accuracy_std_dev"]
+            "F1_Score_std_dev": stats["F1_Score_std_dev"]
         }
         rows.append(row)
 
@@ -307,7 +267,7 @@ def setup_logging():
 def main():
     setup_logging()
 
-    parser = argparse.ArgumentParser(description='Calculate Precision, Recall, F1 Score, and Accuracy for classification tasks.')
+    parser = argparse.ArgumentParser(description='Calculate Precision, Recall, and F1 Score for classification tasks.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode for detailed output.')
     args = parser.parse_args()
 
@@ -333,6 +293,7 @@ def main():
             run_number = run_part.split('.')[0]  # 'run1'
             data_type_parts = parts[2:-1]
             data_type = ' '.join(data_type_parts).title()
+            logging.debug(f"Extracted data_type: {data_type} from filename: {filename}")
             if data_type not in data_types:
                 data_types[data_type] = []
             data_types[data_type].append(file_path)

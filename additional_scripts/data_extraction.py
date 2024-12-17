@@ -152,16 +152,106 @@ def create_assistant_content(labels):
         # Handle 'unknown' and any other unexpected combinations
         return "The classification of this sentence is ambiguous or does not fit predefined categories."
 
+def get_prompt_instructions_for_type(type_of_data):
+    """
+    Returns a domain-specific prompt that instructs the model on how to classify sentences.
+    These instructions are more thorough and are tailored to either gene expression or
+    protein kinase activity, as requested.
+    """
+    if type_of_data == "gene expression":
+        return """
+    You are an expert in biomedical natural language processing, specializing in identifying biocuration-relevant sentences from the biomedical literature. Your goal is to classify a given sentence according to whether it contains information suitable for biocuration tasks focused on gene expression. Consider that the sentences come from full-text scientific articles and may reflect various experimental contexts, including direct experimental results, summarized findings, previously published information, and related methodological details.
+
+    Background
+    Biocuration involves extracting high-quality, trustworthy information about gene function and expression patterns from published references and integrating these data into knowledgebases. Professional curators identify relevant textual evidence—often at the sentence level—from primary literature to ensure that key experimental findings are captured in standardized ontologies and associated with original sources.
+
+    This classification aids in guiding curators and authors to statements that can be used directly or indirectly to create annotations. With the large volume of literature and the complexity of biomedical data, semi-automated tools help make curation more efficient while maintaining quality.
+
+    Data Type of Interest: Gene Expression
+    Relevant sentences may include:
+    - Mention of a specific gene or gene product by name.
+    - Terms or phrases indicating gene expression (e.g., “expressed,” “localized,” “detected in,” “present in”).
+    - Spatial or temporal context for the expression (e.g., a particular tissue, cell type, developmental stage).
+
+    Fully Curatable Gene Expression Data:
+    A fully curatable sentence typically includes all elements needed for a direct annotation: the gene, evidence of its expression, and the anatomical/cellular location and/or the developmental stage.
+
+    Partially Curatable Gene Expression Data:
+    A partially curatable sentence may mention some relevant information but not all. Additional sentences would be needed to complete the annotation.
+
+    Curation-Related Terms (Related Language):
+    Some sentences might not provide direct or partial annotation details but still contain terms associated with gene expression experiments (e.g., reporter constructs, in situ hybridization, qPCR methods, antibodies for detection). These sentences signal relevance but are not directly curatable.
+
+    Non-Curation-Related Content:
+    If a sentence contains no gene expression-relevant information, does not name genes or mention expression, and does not include methodological details relevant to gene expression, it falls into this category.
+
+    Additional Notes:
+    - Some sentences summarize previously published results or mention mutant backgrounds. If they contain expression-related terms but are not suitable for direct annotation, classify them as related language.
+    - If a single sentence lacks all critical pieces but is on-topic, it is partially curatable or related language depending on the details.
+    - Consider if the sentence reports actual experimental findings or only provides background/methodological context.
+
+    Classify the sentence into one of four categories. Please return EXACTLY one of the four following sentences as your classification with no extra text:
+    This sentence contains both fully and partially curatable data as well as terms related to curation.
+    This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.
+    This sentence does not contain fully or partially curatable data but does contain terms related to curation.
+    This sentence does not contain fully or partially curatable data or terms related to curation.
+        """.strip()
+
+    elif type_of_data == "protein kinase activity":
+        return """
+    You are an expert in biomedical natural language processing, specializing in identifying biocuration-relevant sentences from the biomedical literature. Your goal is to classify a given sentence according to whether it contains information suitable for biocuration tasks focused on protein kinase activity. Consider that the sentences come from full-text scientific articles and may reflect various experimental contexts, including direct experimental results, summarized findings, previously published information, and related methodological details.
+
+    Background
+    Biocuration involves extracting high-quality, trustworthy information about protein function and activity, including protein kinase activity, from published references and integrating these data into knowledgebases. Professional curators identify relevant textual evidence—often at the sentence level—from primary literature to ensure that key experimental findings are captured in standardized ontologies and associated with original sources.
+
+    This classification helps guide curators and authors to statements that can be used directly or indirectly to create annotations, aiding in efficient and comprehensive integration of kinase activity data into knowledgebases.
+
+    Data Type of Interest: Protein Kinase Activity
+    Relevant sentences may include:
+    - Mention of a protein kinase by name.
+    - Indications of phosphorylation events or enzymatic activity (e.g., “phosphorylates,” “kinase assay,” “in vitro phosphorylation”).
+    - References to substrates or experimental conditions supporting enzymatic activity.
+
+    Fully Curatable Protein Kinase Data:
+    A fully curatable sentence provides all key elements needed for annotation, such as naming the kinase, indicating enzymatic activity, and possibly referencing an experimental assay or substrate.
+
+    Partially Curatable Protein Kinase Data:
+    A partially curatable sentence provides some information (e.g., mentions the kinase or substrate) but not all. Additional sentences would be needed to fully annotate the activity.
+
+    Curation-Related Terms (Related Language):
+    Some sentences may reference tools, methods, or general concepts related to protein kinase activity (e.g., mentioning phosphorylation or kinase assays) without providing enough detail for direct or partial annotation. These guide the curator but are not directly or partially curatable.
+
+    Non-Curation-Related Content:
+    If the sentence does not mention any kinase activity, phosphorylation, substrates, or relevant methods, it is non-curatable.
+
+    Additional Notes:
+    - Sentences summarizing previously published work or mentioning mutant backgrounds that contain relevant terms but are not suitable for annotation should be considered related language.
+    - If information needed for a full annotation is spread across multiple sentences and the current sentence lacks critical details, it is partially curatable or related language depending on its content.
+    - Distinguish between actual experimental findings and mere methodological/hypothetical statements.
+
+    Classify the sentence into one of four categories. Please return EXACTLY one of the four following sentences as your classification with no extra text:
+    This sentence contains both fully and partially curatable data as well as terms related to curation.
+    This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.
+    This sentence does not contain fully or partially curatable data but does contain terms related to curation.
+    This sentence does not contain fully or partially curatable data or terms related to curation.
+        """.strip()
+    else:
+        # Fallback, though not expected to be used here
+        return "You are an expert classifier. Classify the sentence as fully curatable, partially curatable, curation-related, or non-curatable."
+
 def generate_jsonl_entries(df_subset, type_of_data):
     """
     Generates JSONL entries for all subsets (Training, Validation, Test) with assistant messages.
+    Uses domain-specific, thorough instructions based on the data type, without mentioning function calls.
     """
+    prompt_instructions = get_prompt_instructions_for_type(type_of_data)
+
     entries = []
     for _, row in df_subset.iterrows():
         assistant_content = create_assistant_content(row['labels'])
         entry = {
             "messages": [
-                {"role": "system", "content": f"This GPT assistant is an expert biocurator and sentence-level classifier for {type_of_data}."},
+                {"role": "system", "content": prompt_instructions},
                 {"role": "user", "content": row['SENTENCE']},
                 {"role": "assistant", "content": assistant_content}
             ]

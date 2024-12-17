@@ -1,7 +1,9 @@
+#!/usr/bin/env python
+
 import json
 import random
 import pandas as pd
-from openai import OpenAI  # Ensure you're using the correct OpenAI client
+import openai  # Using the latest OpenAI library
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 import sys
 from tqdm import tqdm
@@ -18,23 +20,21 @@ DATA_TYPES = [
     {
         'type_of_data': 'gene expression',
         'input_file': 'expression_test.jsonl',
-        # 'model_name': 'ft:gpt-3.5-turbo-0125:alliance-of-genome-resources:expression-9:Ad4DezmR'
-        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:expression-9:Ad6SGute'
+        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:expression-11:AfDkuByB'
     },
     {
         'type_of_data': 'protein kinase activity',
         'input_file': 'kinase_test.jsonl',
-        # 'model_name': 'ft:gpt-3.5-turbo-0125:alliance-of-genome-resources:kinase-9:Ad4BfE0M'
-        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:kinase-9:Ad6TjIQr'
+        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:kinase-11:AfDfOuY7'
     }
 ]
 
-# ------------------------------
-# Get the API key and verbosity flags from the command line arguments
-# ------------------------------
+# Maximum number of classification attempts per sentence
+MAX_CLASSIFICATION_ATTEMPTS = 5
+
 def parse_arguments():
     if len(sys.argv) not in [2, 3, 4, 5, 6]:
-        print("Usage: python script_name.py [-v] [-s] <your_openai_api_key>")
+        print("Usage: python testing_model.py [-v] [-s] <your_openai_api_key>")
         print("Options:")
         print("  -v    Enable verbose mode to print detailed output.")
         print("  -s    Run a random subset of 10 entries from the testing data.")
@@ -61,20 +61,10 @@ def parse_arguments():
     api_key = sys.argv[api_key_index]
     return api_key, verbose, subset
 
-# ------------------------------
-# Initialize the OpenAI client
-# ------------------------------
 def initialize_openai_client(api_key):
-    try:
-        client = OpenAI(api_key=api_key)
-        return client
-    except Exception as e:
-        print(f"Error initializing OpenAI client: {e}")
-        sys.exit(1)
+    openai.api_key = api_key
+    return openai
 
-# ------------------------------
-# Define the function that returns the structured response
-# ------------------------------
 def get_tools():
     return [
         {
@@ -104,15 +94,15 @@ def get_tools():
         }
     ]
 
-# ------------------------------
-# Load the JSONL file
-# ------------------------------
 def load_jsonl(file_path):
     testing_data = []
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
-            for line in file:
-                testing_data.append(json.loads(line))
+            for idx, line in enumerate(file, start=1):
+                entry = json.loads(line)
+                if 'id' not in entry:
+                    entry['id'] = idx
+                testing_data.append(entry)
         print(f"Loaded {len(testing_data)} entries from {file_path}.")
     except FileNotFoundError:
         print(f"Error: File {file_path} not found.")
@@ -125,26 +115,89 @@ def load_jsonl(file_path):
         sys.exit(1)
     return testing_data
 
-# ------------------------------
-# Utility function to make chat completion requests with retry logic
-# ------------------------------
-@retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(3))
-def chat_completion_request(client, messages, tools, model):
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=tools,
-            tool_choice={"type": "function", "function": {"name": "classify_sentence"}}
-        )
-        return response
-    except Exception as e:
-        logging.error(f"Exception during API call: {e}")
-        raise e  # Let tenacity handle the retry
+def get_prompt_instructions_for_type(type_of_data):
+    if type_of_data == "gene expression":
+        return """
+    You are an expert in biomedical natural language processing, specializing in identifying biocuration-relevant sentences from the biomedical literature. Your goal is to classify a given sentence according to whether it contains information suitable for biocuration tasks focused on gene expression. Consider that the sentences come from full-text scientific articles and may reflect various experimental contexts, including direct experimental results, summarized findings, previously published information, and related methodological details.
 
-# ------------------------------
-# Define the function that returns the structured response
-# ------------------------------
+    Background
+    Biocuration involves extracting high-quality, trustworthy information about gene function and expression patterns from published references and integrating these data into knowledgebases. Professional curators identify relevant textual evidence—often at the sentence level—from primary literature to ensure that key experimental findings are captured in standardized ontologies and associated with original sources.
+
+    This classification aids in guiding curators and authors to statements that can be used directly or indirectly to create annotations. With the large volume of literature and the complexity of biomedical data, semi-automated tools help make curation more efficient while maintaining quality.
+
+    Data Type of Interest: Gene Expression
+    Relevant sentences may include:
+    - Mention of a specific gene or gene product by name.
+    - Terms or phrases indicating gene expression (e.g., “expressed,” “localized,” “detected in,” “present in”).
+    - Spatial or temporal context for the expression (e.g., a particular tissue, cell type, developmental stage).
+
+    Fully Curatable Gene Expression Data:
+    A fully curatable sentence typically includes all elements needed for a direct annotation: the gene, evidence of its expression, and the anatomical/cellular location and/or the developmental stage.
+
+    Partially Curatable Gene Expression Data:
+    A partially curatable sentence may mention some relevant information but not all. Additional sentences would be needed to complete the annotation.
+
+    Curation-Related Terms (Related Language):
+    Some sentences might not provide direct or partial annotation details but still contain terms associated with gene expression experiments (e.g., reporter constructs, in situ hybridization, qPCR methods, antibodies for detection). These sentences signal relevance but are not directly curatable.
+
+    Non-Curation-Related Content:
+    If a sentence contains no gene expression-relevant information, does not name genes or mention expression, and does not include methodological details relevant to gene expression, it falls into this category.
+
+    Additional Notes:
+    - Some sentences summarize previously published results or mention mutant backgrounds. If they contain expression-related terms but are not suitable for direct annotation, classify them as related language.
+    - If a single sentence lacks all critical pieces but is on-topic, it is partially curatable or related language depending on the details.
+    - Consider if the sentence reports actual experimental findings or only provides background/methodological context.
+
+    Please use the tool function to return an appropriate answer.
+
+        """.strip()
+
+    elif type_of_data == "protein kinase activity":
+        return """
+    You are an expert in biomedical natural language processing, specializing in identifying biocuration-relevant sentences from the biomedical literature. Your goal is to classify a given sentence according to whether it contains information suitable for biocuration tasks focused on protein kinase activity. Consider that the sentences come from full-text scientific articles and may reflect various experimental contexts, including direct experimental results, summarized findings, previously published information, and related methodological details.
+
+    Background
+    Biocuration involves extracting high-quality, trustworthy information about protein function and activity, including protein kinase activity, from published references and integrating these data into knowledgebases. Professional curators identify relevant textual evidence—often at the sentence level—from primary literature to ensure that key experimental findings are captured in standardized ontologies and associated with original sources.
+
+    This classification helps guide curators and authors to statements that can be used directly or indirectly to create annotations, aiding in efficient and comprehensive integration of kinase activity data into knowledgebases.
+
+    Data Type of Interest: Protein Kinase Activity
+    Relevant sentences may include:
+    - Mention of a protein kinase by name.
+    - Indications of phosphorylation events or enzymatic activity (e.g., “phosphorylates,” “kinase assay,” “in vitro phosphorylation”).
+    - References to substrates or experimental conditions supporting enzymatic activity.
+
+    Fully Curatable Protein Kinase Data:
+    A fully curatable sentence provides all key elements needed for annotation, such as naming the kinase, indicating enzymatic activity, and possibly referencing an experimental assay or substrate.
+
+    Partially Curatable Protein Kinase Data:
+    A partially curatable sentence provides some information (e.g., mentions the kinase or substrate) but not all. Additional sentences would be needed to fully annotate the activity.
+
+    Curation-Related Terms (Related Language):
+    Some sentences may reference tools, methods, or general concepts related to protein kinase activity (e.g., mentioning phosphorylation or kinase assays) without providing enough detail for direct or partial annotation. These sentences signal relevance but are not directly or partially curatable.
+
+    Non-Curation-Related Content:
+    If the sentence does not mention any kinase activity, phosphorylation, substrates, or relevant methods, it is non-curatable.
+
+    Additional Notes:
+    - Sentences summarizing previously published work or mentioning mutant backgrounds that contain relevant terms but are not suitable for annotation should be considered related language.
+    - If information needed for a full annotation is spread across multiple sentences and the current sentence lacks critical details, it is partially curatable or related language depending on its content.
+    - Distinguish between actual experimental findings and mere methodological/hypothetical statements.
+
+    Please use the tool function to return an appropriate answer.
+        """.strip()
+
+@retry(wait=wait_random_exponential(multiplier=1, max=40), stop=stop_after_attempt(3))
+def chat_completion_request(messages, tools, model):
+    response = openai.chat.completions.create(
+        model=model,
+        messages=messages,
+        tools=tools,
+        temperature=0,
+        tool_choice={"type": "function", "function": {"name": "classify_sentence"}}
+    )
+    return response
+
 def classify_sentence(content):
     expected_responses = {
         "This sentence contains both fully and partially curatable data as well as terms related to curation.": "curatable",
@@ -152,30 +205,18 @@ def classify_sentence(content):
         "This sentence does not contain fully or partially curatable data but does contain terms related to curation.": "not_curatable",
         "This sentence does not contain fully or partially curatable data or terms related to curation.": "not_curatable"
     }
-
     if content in expected_responses:
         return {"result": expected_responses[content]}
     else:
         raise ValueError(f"Unexpected response: {content}")
 
-# ------------------------------
-# Function to test the performance of the fine-tuned model
-# ------------------------------
-def test_model_concurrent(client, tools, testing_data, model_name, assistant_description, verbose, run_number, data_type_filename, max_workers=10):
-    """
-    Processes API requests concurrently using ThreadPoolExecutor.
-    
-    Parameters:
-    - client: Initialized OpenAI client
-    - tools: Tools definition
-    - testing_data: List of testing data entries
-    - model_name: Name of the fine-tuned model
-    - assistant_description: Description for the system message
-    - verbose: Flag for verbose output
-    - run_number: Current run number for logging
-    - data_type_filename: Filename identifier for saving results
-    - max_workers: Maximum number of worker threads
-    """
+TASKS = {
+    "task1_fully_curatable": "This sentence contains both fully and partially curatable data as well as terms related to curation.",
+    "task2_partially_curatable": "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
+    "task3_language_related": "This sentence does not contain fully or partially curatable data but does contain terms related to curation."
+}
+
+def test_model_concurrent(tools, testing_data, model_name, assistant_description, verbose, run_number, data_type_filename, type_of_data, max_workers=1):
     correct = 0
     total = len(testing_data)
     unexpected_responses = []
@@ -186,112 +227,132 @@ def test_model_concurrent(client, tools, testing_data, model_name, assistant_des
     false_negatives = 0
 
     results = []
-    lock = threading.Lock()  # To synchronize access to shared variables
+    lock = threading.Lock()
 
-    def process_entry(entry):
+    def process_entry(entry, type_of_data):
         nonlocal correct, true_positives, true_negatives, false_positives, false_negatives
-        # user_message = f"Please classify the content of this sentence in terms of its possibility of curation: {entry['messages'][1]['content']}."
-        user_message = f"""
-        You are an expert in biomedical natural language processing, specialized in identifying biocuration-relevant text for gene expression and protein kinase activity. Your task is to classify the following sentence based on whether it contains curatable data or curatable terms for biocuration purposes. Use the following detailed guidelines:
+        attempts = 0
+        while attempts < MAX_CLASSIFICATION_ATTEMPTS:
+            attempts += 1
+            # Use only system and user messages, no assistant message.
+            prompt_instructions = get_prompt_instructions_for_type(type_of_data)
+            # The user message is just the sentence from entry['messages'][1]['content'].
+            # We do NOT include the assistant message from the training set.
+            # The expected response is still entry['messages'][-1]['content'] for comparison.
+            expected_response = entry["messages"][-1]["content"]
+            user_sentence = entry["messages"][1]["content"]
 
-        1. **Fully Curatable Data:** Sentences that explicitly describe facts, results, or findings directly usable for biocuration tasks. 
-        - For **gene expression**, this includes sentences mentioning the gene or gene product, a keyword indicating expression, and spatial/temporal localization, along with relevant life stages. 
-        - For **protein kinase activity**, this includes sentences explicitly describing enzymatic activity (e.g., phosphorylation) and, where possible, physiologically relevant substrates.
+            messages = [
+                {"role": "system", "content": prompt_instructions},
+                {"role": "user", "content": user_sentence}
+            ]
 
-        2. **Partially Curatable Data:** Sentences missing one or more critical pieces of information necessary for annotation:
-        - For **gene expression**, this might include the absence of a gene name or specific anatomical location.
-        - For **protein kinase activity**, this might include the absence of either the kinase or the substrate.
-
-        3. **Curation-Related Terms:** Sentences that do not contain fully or partially curatable data but include terms commonly associated with biocuration. These may describe experimental design, hypotheses, or use related language but lack curatable experimental results.
-
-        4. **Non-Curation-Related Content:** Sentences that lack both curatable data and curation-related terms, and are unrelated to biocuration objectives.
-
-        When classifying the sentence, consider the scientific context and structure of the text, and leverage your expertise in identifying meaningful data points relevant to professional biocuration workflows. Pay close attention to sentence-level granularity and ensure the classification aligns with the above guidelines.
-
-        Please classify this sentence: "{entry['messages'][1]['content']}".
-        """
-        messages = [
-            {"role": "system", "content": assistant_description},
-            {"role": "user", "content": user_message},
-        ]
-        expected_response = entry["messages"][-1]["content"]
-
-        try:
-            completion = chat_completion_request(client, messages, tools, model_name)
-            if completion is None:
-                raise ValueError("No response received from the API.")
-
-            tool_calls = completion.choices[0].message.tool_calls
-            if not tool_calls:
-                raise ValueError("No function call was made by the model.")
+            if verbose:
+                print(f"\nRun {run_number}, Entry {entry['id']}:")
+                print("Request Messages:")
+                print(json.dumps(messages, indent=2))
+            
+            try:
+                completion = chat_completion_request(messages, tools, model_name)
+                if verbose:
+                    print("Response Object:")
+                    print(json.dumps(completion.model_dump(), indent=2))
                 
-            function_call_response = json.loads(tool_calls[0].function.arguments)
-            content = function_call_response["content"]
-
-            response_category = classify_sentence(content)
-            expected_category = classify_sentence(expected_response)
-
-            with lock:
-                result = {
-                    "sentence": entry['messages'][1]['content'],
-                    "expected_response": expected_response,
-                    "assistant_response": content,
-                    "result_category": "correct" if response_category == expected_category else "incorrect",
-                    "classification": ""
-                }
-
-                if response_category == expected_category:
-                    correct += 1
-                    if response_category["result"] == "curatable":
-                        true_positives += 1
-                        result["classification"] = "true_positive"
-                    else:
-                        true_negatives += 1
-                        result["classification"] = "true_negative"
-                else:
+                tool_calls = completion.choices[0].message.tool_calls
+                if not tool_calls or len(tool_calls) == 0:
                     if verbose:
-                        print(f"Sentence: {messages[1]['content']}")
-                        print(f"Expected: {expected_response}")
-                        print(f"Got: {content}")
-                        print("-" * 50)
+                        print(f"Run {run_number}, Entry {entry['id']}: No function call made.")
+                    continue  # Retry
 
-                    if response_category["result"] == "curatable":
-                        false_positives += 1
-                        result["classification"] = "false_positive"
-                    else:
-                        false_negatives += 1
-                        result["classification"] = "false_negative"
+                tool_call = tool_calls[0]
+                function_args_str = tool_call.function.arguments
+                function_call_response = json.loads(function_args_str)
+                content = function_call_response.get("content", "").strip()
 
-                    if content not in [entry["messages"][-1]["content"] for entry in testing_data]:
-                        unexpected_responses.append(content)
-                        if verbose:
-                            print(f"Unexpected response: {content}")
+                if verbose:
+                    print(f"Assistant Response Content: {content}")
 
-                results.append(result)
-        except ValueError as ve:
-            with lock:
+                valid_responses = [
+                    "This sentence contains both fully and partially curatable data as well as terms related to curation.",
+                    "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
+                    "This sentence does not contain fully or partially curatable data but does contain terms related to curation.",
+                    "This sentence does not contain fully or partially curatable data or terms related to curation."
+                ]
+                if content not in valid_responses:
+                    if verbose:
+                        print(f"Run {run_number}, Entry {entry['id']}: Invalid response received: {content}")
+                    if attempts >= MAX_CLASSIFICATION_ATTEMPTS:
+                        print(f"Run {run_number}, Entry {entry['id']}: Failed to get a valid response after {MAX_CLASSIFICATION_ATTEMPTS} attempts.")
+                    continue
+                else:
+                    response_category = classify_sentence(content)
+                    expected_category = classify_sentence(expected_response)
+
+                    with lock:
+                        result = {
+                            "sentence": user_sentence,
+                            "expected_response": expected_response,
+                            "assistant_response": content,
+                            "result_category": "correct" if response_category["result"] == expected_category["result"] else "incorrect",
+                            "classification": ""
+                        }
+
+                        if response_category["result"] == expected_category["result"]:
+                            correct += 1
+                            if response_category["result"] == "curatable":
+                                true_positives += 1
+                                result["classification"] = "true_positive"
+                            else:
+                                true_negatives += 1
+                                result["classification"] = "true_negative"
+                        else:
+                            if verbose:
+                                print(f"Run {run_number}, Entry {entry['id']}:")
+                                print(f"Sentence: {user_sentence}")
+                                print(f"Expected: {expected_response}")
+                                print(f"Got: {content}")
+                                print("-" * 50)
+
+                            if response_category["result"] == "curatable":
+                                false_positives += 1
+                                result["classification"] = "false_positive"
+                            else:
+                                false_negatives += 1
+                                result["classification"] = "false_negative"
+
+                            unexpected_responses.append(content)
+                            if verbose:
+                                print(f"Run {run_number}, Entry {entry['id']}: Unexpected response: {content}")
+
+                        results.append(result)
+                    break
+
+            except ValueError as ve:
                 if verbose:
                     print(f"ValueError: {ve}")
-                # Optionally, log or handle the unexpected response
-        except Exception as e:
-            with lock:
+            except Exception as e:
                 if verbose:
                     print(f"Exception: {e}")
-                # Optionally, log or handle other exceptions
 
-    # Initialize ThreadPoolExecutor
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        list(tqdm(executor.map(process_entry, testing_data), total=total, desc=f"Processing Run {run_number}", unit="sentence"))
+        list(tqdm(
+            executor.map(lambda entry: process_entry(entry, type_of_data), testing_data),
+            total=total,
+            desc=f"Processing Run {run_number}",
+            unit="sentence"
+        ))
 
-    # Calculate metrics
-    accuracy = correct / total * 100
+    # Remove accuracy calculation
+    # Keep precision, recall, f1_score
+    # The logic for calculating these remains
+    total = len(results)
     precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
     recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
     f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
     if verbose:
         print(f"\nRun {run_number} Metrics:")
-        print(f"Accuracy: {accuracy:.2f}%")
+        # No accuracy
         print(f"Precision: {precision:.2f}")
         print(f"Recall: {recall:.2f}")
         print(f"F1 Score: {f1_score:.2f}")
@@ -300,22 +361,18 @@ def test_model_concurrent(client, tools, testing_data, model_name, assistant_des
         print(f"False Positives: {false_positives}")
         print(f"False Negatives: {false_negatives}")
 
-    # Save results to TSV file
     output_file_path = f'classification_results_{data_type_filename}_run{run_number}.tsv'
     df = pd.DataFrame(results)
     df.to_csv(output_file_path, sep='\t', index=False)
     print(f"Successfully saved TSV file: {output_file_path}")
 
-    # Save unexpected responses to a file
     unexpected_responses_file_path = f'unexpected_responses_{data_type_filename}_run{run_number}.txt'
     with open(unexpected_responses_file_path, 'w', encoding='utf-8') as file:
         for response in unexpected_responses:
             file.write(response + '\n')
     print(f"Successfully saved unexpected responses file: {unexpected_responses_file_path}")
 
-    # Return metrics (optional, for further processing)
     return {
-        "accuracy": accuracy,
         "precision": precision,
         "recall": recall,
         "f1_score": f1_score,
@@ -325,41 +382,23 @@ def test_model_concurrent(client, tools, testing_data, model_name, assistant_des
         "false_negatives": false_negatives
     }
 
-# ------------------------------
-# Main Function
-# ------------------------------
 def main():
-    # Parse command-line arguments
     api_key, verbose, subset = parse_arguments()
 
-    # Initialize OpenAI client
-    client = initialize_openai_client(api_key)
+    initialize_openai_client(api_key)
 
-    # Get tools definition
     tools = get_tools()
 
-    # Define number of test runs
     NUM_RUNS = 5
+    MAX_WORKERS = 5
 
-    # Define Rate Limits (Adjust these based on your OpenAI subscription)
-    MAX_REQUESTS_PER_MINUTE = 1500  # Example value
-    MAX_TOKENS_PER_MINUTE = 6250000  # Example value
-
-    # Calculate max_workers based on rate limits
-    # For simplicity, assume 60 seconds in a minute
-    # max_workers = requests_per_minute / 60
-    # Here, set a conservative number to stay under rate limits
-    MAX_WORKERS = 50  # Adjust based on your actual rate limits
-
-    # Initialize logging
     logging.basicConfig(
         filename='testing_model_parallel.log',
         filemode='a',
         format='%(asctime)s - %(levelname)s - %(message)s',
-        level=logging.INFO if not verbose else logging.DEBUG
+        level=logging.DEBUG if verbose else logging.INFO
     )
 
-    # Loop through each data type
     for data_type_config in DATA_TYPES:
         type_of_data = data_type_config['type_of_data']
         type_of_data_filename = type_of_data.replace(' ', '_')
@@ -373,26 +412,22 @@ def main():
         print(f"Model: {model_name}")
         print(f"{'='*60}")
 
-        # Load testing data
         testing_data = load_jsonl(input_file)
 
-        # Select a random subset if the -s flag is set
         if subset:
             if len(testing_data) < 10:
                 print(f"Warning: Requested subset size of 10, but only {len(testing_data)} entries are available.")
                 subset_size = len(testing_data)
             else:
-                subset_size = 10
+                subset_size = 2
             testing_data = random.sample(testing_data, subset_size)
             print(f"Selected a random subset of {len(testing_data)} entries for testing.")
 
-        # Perform multiple test runs
         for run in range(1, NUM_RUNS + 1):
             print(f"\n--- Starting Test Run {run} for {type_of_data} ---")
             logging.info(f"Starting Test Run {run} for {type_of_data}")
 
             metrics = test_model_concurrent(
-                client=client,
                 tools=tools,
                 testing_data=testing_data,
                 model_name=model_name,
@@ -400,6 +435,7 @@ def main():
                 verbose=verbose,
                 run_number=run,
                 data_type_filename=type_of_data_filename,
+                type_of_data=type_of_data,
                 max_workers=MAX_WORKERS
             )
 
