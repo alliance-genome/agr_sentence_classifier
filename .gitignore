@@ -163,3 +163,8 @@ cython_debug/
 *.jsonl
 *.tsv
 *.txt
+!final_classification_results_*.tsv
+!final*.jsonl
+!*datasets*.tsv
+!final*.tsv
+!final_testing*.log

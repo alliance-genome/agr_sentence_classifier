@@ -10,7 +10,7 @@ import logging
 # Setup Logging
 # ------------------------------
 logging.basicConfig(
-    filename='data_extraction.log',
+    filename='final_data_extraction.log',
     filemode='a',
     format='%(asctime)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -114,13 +114,13 @@ def assign_labels(row):
     """
     labels = []
     if (row['FULLY_CURATABLE'] == 1 and 
-        row['PARTIALLY_CURATABLE'] == 1 and 
-        row['RELATED_LANGUAGE'] == 1):
-        labels.extend(['fully_curatable', 'partially_curatable', 'language_related'])
+        row['PARTIALLY_CURATABLE'] == 0 and 
+        row['RELATED_LANGUAGE'] == 0):
+        labels.append('fully_curatable')
     elif (row['PARTIALLY_CURATABLE'] == 1 and 
-          row['RELATED_LANGUAGE'] == 1 and 
+          row['RELATED_LANGUAGE'] == 0 and 
           row['FULLY_CURATABLE'] == 0):
-        labels.extend(['partially_curatable', 'language_related'])
+        labels.append('partially_curatable')
     elif (row['RELATED_LANGUAGE'] == 1 and 
           row['FULLY_CURATABLE'] == 0 and 
           row['PARTIALLY_CURATABLE'] == 0):
@@ -140,14 +140,14 @@ def create_assistant_content(labels):
     Generates the assistant's response based on assigned labels.
     Returns exactly one of the four enumerated responses.
     """
-    if set(labels) == {'fully_curatable', 'partially_curatable', 'language_related'}:
-        return "This sentence contains both fully and partially curatable data as well as terms related to curation."
-    elif set(labels) == {'partially_curatable', 'language_related'}:
-        return "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation."
+    if set(labels) == {'fully_curatable'}:
+        return "This sentence only contains fully curatable data."
+    elif set(labels) == {'partially_curatable'}:
+        return "This sentence only contains partially curatable data."
     elif set(labels) == {'language_related'}:
-        return "This sentence does not contain fully or partially curatable data but does contain terms related to curation."
+        return "This sentence is not fully or partially curatable, but it contains terms related to the datatype."
     elif set(labels) == {'not_curatable'}:
-        return "This sentence does not contain fully or partially curatable data or terms related to curation."
+        return "This sentence does not contain fully or partially curatable data, or terms related to the datatype."
     else:
         # Handle 'unknown' and any other unexpected combinations
         return "The classification of this sentence is ambiguous or does not fit predefined categories."
@@ -191,10 +191,10 @@ def get_prompt_instructions_for_type(type_of_data):
     - Consider if the sentence reports actual experimental findings or only provides background/methodological context.
 
     Classify the sentence into one of four categories. Please return EXACTLY one of the four following sentences as your classification with no extra text:
-    This sentence contains both fully and partially curatable data as well as terms related to curation.
-    This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.
-    This sentence does not contain fully or partially curatable data but does contain terms related to curation.
-    This sentence does not contain fully or partially curatable data or terms related to curation.
+    This sentence only contains fully curatable data.
+    This sentence only contains partially curatable data.
+    This sentence is not fully or partially curatable, but it contains terms related to the datatype.
+    This sentence does not contain fully or partially curatable data, or terms related to the datatype.
         """.strip()
 
     elif type_of_data == "protein kinase activity":
@@ -230,10 +230,10 @@ def get_prompt_instructions_for_type(type_of_data):
     - Distinguish between actual experimental findings and mere methodological/hypothetical statements.
 
     Classify the sentence into one of four categories. Please return EXACTLY one of the four following sentences as your classification with no extra text:
-    This sentence contains both fully and partially curatable data as well as terms related to curation.
-    This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.
-    This sentence does not contain fully or partially curatable data but does contain terms related to curation.
-    This sentence does not contain fully or partially curatable data or terms related to curation.
+    This sentence only contains fully curatable data.
+    This sentence only contains partially curatable data.
+    This sentence is not fully or partially curatable, but it contains terms related to the datatype.
+    This sentence does not contain fully or partially curatable data, or terms related to the datatype.
         """.strip()
     else:
         # Fallback, though not expected to be used here

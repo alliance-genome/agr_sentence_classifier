@@ -19,13 +19,13 @@ import time
 DATA_TYPES = [
     {
         'type_of_data': 'gene expression',
-        'input_file': 'expression_test.jsonl',
-        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:expression-11:AfDkuByB'
+        'input_file': 'final_expression_test.jsonl',
+        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:expression-12:AfaszfkK'
     },
     {
         'type_of_data': 'protein kinase activity',
-        'input_file': 'kinase_test.jsonl',
-        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:kinase-11:AfDfOuY7'
+        'input_file': 'final_kinase_test.jsonl',
+        'model_name': 'ft:gpt-4o-2024-08-06:alliance-of-genome-resources:kinase-12:Afar4SrV'
     }
 ]
 
@@ -79,10 +79,10 @@ def get_tools():
                         "content": {
                             "type": "string",
                             "enum": [
-                                "This sentence contains both fully and partially curatable data as well as terms related to curation.",
-                                "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
-                                "This sentence does not contain fully or partially curatable data but does contain terms related to curation.",
-                                "This sentence does not contain fully or partially curatable data or terms related to curation."
+                                "This sentence only contains fully curatable data.",
+                                "This sentence only contains partially curatable data.",
+                                "This sentence is not fully or partially curatable, but it contains terms related to the datatype.",
+                                "This sentence does not contain fully or partially curatable data, or terms related to the datatype."
                             ],
                             "description": "The classification result of the sentence."
                         }
@@ -149,7 +149,6 @@ def get_prompt_instructions_for_type(type_of_data):
     - Consider if the sentence reports actual experimental findings or only provides background/methodological context.
 
     Please use the tool function to return an appropriate answer.
-
         """.strip()
 
     elif type_of_data == "protein kinase activity":
@@ -198,39 +197,15 @@ def chat_completion_request(messages, tools, model):
     )
     return response
 
-def classify_sentence(content):
-    expected_responses = {
-        "This sentence contains both fully and partially curatable data as well as terms related to curation.": "curatable",
-        "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.": "curatable",
-        "This sentence does not contain fully or partially curatable data but does contain terms related to curation.": "not_curatable",
-        "This sentence does not contain fully or partially curatable data or terms related to curation.": "not_curatable"
-    }
-    if content in expected_responses:
-        return {"result": expected_responses[content]}
-    else:
-        raise ValueError(f"Unexpected response: {content}")
-
-TASKS = {
-    "task1_fully_curatable": "This sentence contains both fully and partially curatable data as well as terms related to curation.",
-    "task2_partially_curatable": "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
-    "task3_language_related": "This sentence does not contain fully or partially curatable data but does contain terms related to curation."
-}
-
 def test_model_concurrent(tools, testing_data, model_name, assistant_description, verbose, run_number, data_type_filename, type_of_data, max_workers=1):
-    correct = 0
     total = len(testing_data)
     unexpected_responses = []
     
-    true_positives = 0
-    true_negatives = 0
-    false_positives = 0
-    false_negatives = 0
-
     results = []
     lock = threading.Lock()
 
     def process_entry(entry, type_of_data):
-        nonlocal correct, true_positives, true_negatives, false_positives, false_negatives
+        nonlocal unexpected_responses
         attempts = 0
         while attempts < MAX_CLASSIFICATION_ATTEMPTS:
             attempts += 1
@@ -273,10 +248,10 @@ def test_model_concurrent(tools, testing_data, model_name, assistant_description
                     print(f"Assistant Response Content: {content}")
 
                 valid_responses = [
-                    "This sentence contains both fully and partially curatable data as well as terms related to curation.",
-                    "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
-                    "This sentence does not contain fully or partially curatable data but does contain terms related to curation.",
-                    "This sentence does not contain fully or partially curatable data or terms related to curation."
+                    "This sentence only contains fully curatable data.",
+                    "This sentence only contains partially curatable data.",
+                    "This sentence is not fully or partially curatable, but it contains terms related to the datatype.",
+                    "This sentence does not contain fully or partially curatable data, or terms related to the datatype."
                 ]
                 if content not in valid_responses:
                     if verbose:
@@ -285,51 +260,15 @@ def test_model_concurrent(tools, testing_data, model_name, assistant_description
                         print(f"Run {run_number}, Entry {entry['id']}: Failed to get a valid response after {MAX_CLASSIFICATION_ATTEMPTS} attempts.")
                     continue
                 else:
-                    response_category = classify_sentence(content)
-                    expected_category = classify_sentence(expected_response)
-
                     with lock:
                         result = {
                             "sentence": user_sentence,
                             "expected_response": expected_response,
-                            "assistant_response": content,
-                            "result_category": "correct" if response_category["result"] == expected_category["result"] else "incorrect",
-                            "classification": ""
+                            "assistant_response": content
                         }
-
-                        if response_category["result"] == expected_category["result"]:
-                            correct += 1
-                            if response_category["result"] == "curatable":
-                                true_positives += 1
-                                result["classification"] = "true_positive"
-                            else:
-                                true_negatives += 1
-                                result["classification"] = "true_negative"
-                        else:
-                            if verbose:
-                                print(f"Run {run_number}, Entry {entry['id']}:")
-                                print(f"Sentence: {user_sentence}")
-                                print(f"Expected: {expected_response}")
-                                print(f"Got: {content}")
-                                print("-" * 50)
-
-                            if response_category["result"] == "curatable":
-                                false_positives += 1
-                                result["classification"] = "false_positive"
-                            else:
-                                false_negatives += 1
-                                result["classification"] = "false_negative"
-
-                            unexpected_responses.append(content)
-                            if verbose:
-                                print(f"Run {run_number}, Entry {entry['id']}: Unexpected response: {content}")
-
                         results.append(result)
                     break
 
-            except ValueError as ve:
-                if verbose:
-                    print(f"ValueError: {ve}")
             except Exception as e:
                 if verbose:
                     print(f"Exception: {e}")
@@ -342,26 +281,7 @@ def test_model_concurrent(tools, testing_data, model_name, assistant_description
             unit="sentence"
         ))
 
-    # Remove accuracy calculation
-    # Keep precision, recall, f1_score
-    # The logic for calculating these remains
-    total = len(results)
-    precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
-    recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
-    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-
-    if verbose:
-        print(f"\nRun {run_number} Metrics:")
-        # No accuracy
-        print(f"Precision: {precision:.2f}")
-        print(f"Recall: {recall:.2f}")
-        print(f"F1 Score: {f1_score:.2f}")
-        print(f"True Positives: {true_positives}")
-        print(f"True Negatives: {true_negatives}")
-        print(f"False Positives: {false_positives}")
-        print(f"False Negatives: {false_negatives}")
-
-    output_file_path = f'classification_results_{data_type_filename}_run{run_number}.tsv'
+    output_file_path = f'final_classification_results_{data_type_filename}_run{run_number}.tsv'
     df = pd.DataFrame(results)
     df.to_csv(output_file_path, sep='\t', index=False)
     print(f"Successfully saved TSV file: {output_file_path}")
@@ -373,13 +293,7 @@ def test_model_concurrent(tools, testing_data, model_name, assistant_description
     print(f"Successfully saved unexpected responses file: {unexpected_responses_file_path}")
 
     return {
-        "precision": precision,
-        "recall": recall,
-        "f1_score": f1_score,
-        "true_positives": true_positives,
-        "true_negatives": true_negatives,
-        "false_positives": false_positives,
-        "false_negatives": false_negatives
+        # Metrics are removed as per requirements
     }
 
 def main():
@@ -390,10 +304,10 @@ def main():
     tools = get_tools()
 
     NUM_RUNS = 5
-    MAX_WORKERS = 5
+    MAX_WORKERS = 1  # Ensured to be 1 as per earlier user requirement for sequential processing
 
     logging.basicConfig(
-        filename='testing_model_parallel.log',
+        filename='final_testing_model_parallel.log',
         filemode='a',
         format='%(asctime)s - %(levelname)s - %(message)s',
         level=logging.DEBUG if verbose else logging.INFO
@@ -419,7 +333,7 @@ def main():
                 print(f"Warning: Requested subset size of 10, but only {len(testing_data)} entries are available.")
                 subset_size = len(testing_data)
             else:
-                subset_size = 2
+                subset_size = 10  # Corrected to select 10 as per the option
             testing_data = random.sample(testing_data, subset_size)
             print(f"Selected a random subset of {len(testing_data)} entries for testing.")
 
@@ -427,7 +341,7 @@ def main():
             print(f"\n--- Starting Test Run {run} for {type_of_data} ---")
             logging.info(f"Starting Test Run {run} for {type_of_data}")
 
-            metrics = test_model_concurrent(
+            _ = test_model_concurrent(
                 tools=tools,
                 testing_data=testing_data,
                 model_name=model_name,
@@ -440,7 +354,7 @@ def main():
             )
 
             print(f"Completed Test Run {run} for {type_of_data}.\n")
-            logging.info(f"Completed Test Run {run} for {type_of_data}. Metrics: {metrics}")
+            logging.info(f"Completed Test Run {run} for {type_of_data}.")
 
     print("\nAll test runs have been completed successfully.")
     logging.info("All test runs have been completed successfully.")

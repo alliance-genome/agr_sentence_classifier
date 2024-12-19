@@ -1,137 +1,201 @@
-README
-======
+Characterization and automated classification of sentences in the biomedical literature: a case study for biocuration of gene expression and protein kinase activity
+=======================================
 
-Data Preparation Scripts
-------------------------
+Overview
+--------
 
-This directory contains scripts used for data preparation and validation in the context of classifying sentences. Below is a brief summary of each script and guidance on how they can be adjusted.
+This repository documents the data preparation and evaluation processes undertaken to create and assess biocuration-relevant datasets for gene expression and protein kinase activity domains using a fine-tuned GPT-4o model, as presented in our scientific publication, "Characterization and automated classification of sentences in the biomedical literature: a case study for biocuration of gene expression and protein kinase activity". The workflows encompassed data extraction, labeling, stratified splitting, model testing, and metric assessment.
+
+Scripts and Workflow
+--------------------
 
 ### 1\. `data_extraction.py`
 
-#### Purpose
+**Purpose:**\
+This script was utilized to extract, filter, and label sentences from raw TSV datasets pertaining to gene expression and protein kinase activity. It systematically processed the data to prepare it for model training and evaluation.
 
--   **Extracts and filters sentences** from a TSV file (`expression_sentence_datasets.tsv`) based on specified criteria.
--   **Generates structured data** for training and testing by creating JSON Lines (`.jsonl`) files.
+**Input Files:**
 
-#### Functionality
+-   `expression_sentence_datasets.tsv`
+-   `kinase_sentence_datasets.tsv`
 
--   **Filters data** based on:
+**Operations Performed:**
 
-    -   Source (`SOURCE` column): using `source_filter`.
-    -   Fully curatable sentences (`FULLY_CURATABLE` column): using `fully_curable_filter`.
-    -   Partially curatable sentences (`PARTIALLY_CURATABLE` column): using `partially_curable_filter`.
-    -   Related language (`RELATED_LANGUAGE` column): using `related_language_filter`.
-    -   Training or testing data (`TRAINING_OR_TESTING` column).
--   **Creates assistant responses** based on the curation status of each sentence.
+-   **Data Loading and Filtering:**\
+    Imported the raw TSV files and filtered the data based on predefined criteria, including the source (`SOURCE`), and binary indicators for `FULLY_CURATABLE`, `PARTIALLY_CURATABLE`, and `RELATED_LANGUAGE`.
 
--   **Outputs**:
+-   **Label Assignment:**\
+    Assigned multi-label categories to each sentence, classifying them as:
 
-    -   `fine_tuned_training_data_expression_<type_of_data>.jsonl`
-    -   `fine_tuned_testing_data_expression_<type_of_data>.jsonl`
+    -   **Fully Curatable:** Contains all necessary elements for direct annotation.
+    -   **Partially Curatable:** Contains some relevant information but incomplete for full annotation.
+    -   **Language Related:** Contains relevant terms but lacks sufficient detail for curation.
+    -   **Not Curatable:** Does not contain relevant information or terms.
+-   **Stratified Splitting:**\
+    Employed a multi-label stratified shuffle split to divide the dataset into training (70%), validation (15%), and testing (15%) subsets, ensuring balanced representation of all labels across splits.
 
-#### How to Adjust
+**Output Files:** For each data type (`gene expression` and `protein kinase activity`), the script generated the following JSON Lines (`.jsonl`) files within respective directories:
 
--   **Filtering Criteria**:
+-   **Gene Expression:**
+    -   `multi_label_split_data/gene_expression/final_train.jsonl`
+    -   `multi_label_split_data/gene_expression/final_val.jsonl`
+    -   `multi_label_split_data/gene_expression/final_test.jsonl`*
+-   **Protein Kinase Activity:**
+    -   `multi_label_split_data/protein_kinase_activity/final_train.jsonl`
+    -   `multi_label_split_data/protein_kinase_activity/final_val.jsonl`
+    -   `multi_label_split_data/protein_kinase_activity/final_test.jsonl`*
 
-    -   Modify the `source_filter`, `fully_curable_filter`, `partially_curable_filter`, and `related_language_filter` lists to change the filtering criteria.
+**\*NOTE:** The final test files were manually renamed to `final_expression_test.jsonl` and `final_kinase_text.jsonl` respectively and copied to the root folder of the repository for further processing.
 
-    `source_filter = ['GOLD', '1000']  # Adjust source identifiers
-    fully_curable_filter = [0, 1]     # Use [1] for only fully curatable sentences
-    partially_curable_filter = [0, 1] # Use [1] for only partially curatable sentences
-    related_language_filter = [0, 1]  # Use [1] for sentences with related language`
+**Subsequent Usage:** These JSONL files served as input for the `testing_model.py` script, which conducted model evaluations on the prepared test datasets. The training and validation subsets were used to train the GPT-4o model (gpt-4o-2024-08-06) via the OpenAI Dashboard interface.
 
--   **Data Type**:
+* * * * *
 
-    -   Update the `type_of_data` variable to reflect the specific data type you are working with.
+### 2\. `testing_model.py`
 
-    `type_of_data = 'gene expression'  # Change to your specific data type`
+**Purpose:**\
+This script conducted evaluations of fine-tuned language models on the prepared test datasets. It processed the JSONL test files to generate classification results by interacting with specified language models.
 
--   **Input and Output Paths**:
+**Input Files:**
 
-    -   Modify `input_file_path` if your input TSV file is named differently or located elsewhere.
+-   `final_expression_test.jsonl`
+-   `final_kinase_text.jsonl`
 
-    -   The output file paths are generated based on `type_of_data`; adjust if necessary.
+**Operations Performed:**
 
-### 2\. `check_sentences.py`
+-   **Model Initialization:**\
+    Configured and authenticated with the OpenAI API using provided API keys and model identifiers specific to each data type.
 
-#### Purpose
+-   **Concurrent Processing:**\
+    Executed five independent runs for each data type, where each run involved:
 
--   **Verifies** whether specific sentences are present in a given JSON Lines (`.jsonl`) file.
+    -   Reading the test JSONL files.
+    -   Sending classification requests to the designated language models.
+    -   Collecting and recording the model's responses.
 
-#### Functionality
+**Output Files:** For each data type and run, the script generated TSV files capturing the classification results:
 
--   **Loads** the `.jsonl` file specified by `file_path`.
+-   **Gene Expression:**
+    -   `final_classification_results_gene_expression_run1.tsv`
+    -   `final_classification_results_gene_expression_run2.tsv`
+    -   `final_classification_results_gene_expression_run3.tsv`
+    -   `final_classification_results_gene_expression_run4.tsv`
+    -   `final_classification_results_gene_expression_run5.tsv`
+-   **Protein Kinase Activity:**
+    -   `final_classification_results_protein_kinase_activity_run1.tsv`
+    -   `final_classification_results_protein_kinase_activity_run2.tsv`
+    -   `final_classification_results_protein_kinase_activity_run3.tsv`
+    -   `final_classification_results_protein_kinase_activity_run4.tsv`
+    -   `final_classification_results_protein_kinase_activity_run5.tsv`
 
--   **Checks** if the sentences listed in `sentences_to_check` are present in the assistant's responses within the JSON Lines file.
+**Subsequent Usage:** These classification result TSV files were subsequently analyzed by the `metrics_assessment.py` script to compute performance metrics across multiple runs.
 
--   **Outputs** a DataFrame indicating which sentences are present.
+* * * * *
 
-#### How to Adjust
+### 3\. `metrics_assessment.py`
 
--   **File Path**:
+**Purpose:**\
+This script evaluated the performance of the language models by calculating precision, recall, and F1-scores based on the classification results obtained from `testing_model.py`. It aggregated metrics across multiple runs to provide a comprehensive assessment of model performance.
 
-    -   Set `file_path` to point to the JSON Lines file you want to check.
+**Input Files:**
 
-    `file_path = 'fine_tuned_testing_data_expression.jsonl'  # Update as needed`
+-   **Gene Expression:**
+    -   `final_classification_results_gene_expression_run1.tsv`
+    -   `final_classification_results_gene_expression_run2.tsv`
+    -   `final_classification_results_gene_expression_run3.tsv`
+    -   `final_classification_results_gene_expression_run4.tsv`
+    -   `final_classification_results_gene_expression_run5.tsv`
+-   **Protein Kinase Activity:**
+    -   `final_classification_results_protein_kinase_activity_run1.tsv`
+    -   `final_classification_results_protein_kinase_activity_run2.tsv`
+    -   `final_classification_results_protein_kinase_activity_run3.tsv`
+    -   `final_classification_results_protein_kinase_activity_run4.tsv`
+    -   `final_classification_results_protein_kinase_activity_run5.tsv`
 
--   **Sentences to Check**:
+**Operations Performed:**
 
-    -   Modify the `sentences_to_check` list to include the sentences you want to verify.
+-   **Task Definition:**\
+    Categorized responses into three primary tasks:
 
-    `sentences_to_check = [
-        "Sentence 1",
-        "Sentence 2",
-        # Add or remove sentences as needed
-    ]`
+    -   **Task1 Fully Curatable:** Involves responses indicating fully curatable data.
+    -   **Task2 Fully or Partially Curatable:** Combines responses indicating either fully or partially curatable data.
+    -   **Task3 Fully Partially Or Language Related:** Combines responses indicating fully curatable, partially curatable, or language-related data.
+-   **Metric Calculation:**\
+    For each task, the script computed precision, recall, and F1-scores across all five runs, calculating the mean and standard deviation for each metric to assess consistency and reliability.
 
-### 3\. `check_missing_data.py`
+-   **Negative Examples Reporting:**\
+    Quantified entries that did not fit into any of the defined tasks, providing insights into the model's handling of irrelevant or ambiguous data. These data were not included in the graphs or discussion of the publication.
 
-#### Purpose
+**Output Files:** For each data type, the script generated a comprehensive metrics summary TSV file:
 
--   **Checks for missing or incomplete data** in the results obtained from running the classification script.
+-   **Gene Expression:**
+    -   `final_metrics_summary_Gene_Expression.tsv`
+-   **Protein Kinase Activity:**
+    -   `final_metrics_summary_Protein_Kinase.tsv`
 
-#### Functionality
+**Content of Metrics Summary Files:** Each summary file contained detailed metrics for each task, including:
 
--   **Loads** prompts from a JSON Lines (`.jsonl`) file containing all possible prompts.
+-   **Combined Counts:**\
+    Number of entries combined from each response type (fully curated, partially curated, language related).
 
--   **Loads** results from a TSV file containing classification results.
+-   **Entries Count Total:**\
+    Total number of entries per task.
 
--   **Identifies**:
+-   **Performance Metrics:**
 
-    -   Prompts that are missing in the results file.
-    -   Potential early termination of the classification script.
-    -   Duplicate entries in the results file.
+    -   Precision (mean ± standard deviation)
+    -   Recall (mean ± standard deviation)
+    -   F1 Score (mean ± standard deviation)
+-   **Negative Examples:**\
+    Mean and standard deviation of entries not fitting any task.
 
-#### How to Adjust
+**Usage Considerations:**\
+The metrics summaries provided a quantitative evaluation of model performance, facilitating the comparison of classification accuracy and reliability across different tasks and data types.
 
--   **File Paths**:
+* * * * *
 
-    -   Update `jsonl_file_path` to point to your prompts file.
+Data Flow Summary
+-----------------
 
-        `jsonl_file_path = 'fine_tuned_testing_data_expression_gene_expression.jsonl'  # Update as needed`
+1.  **Data Extraction and Preparation:**
 
-    -   Update `tsv_file_path` to point to your results file.
+    -   `data_extraction.py` processed raw TSV datasets (`expression_sentence_datasets.tsv` and `kinase_sentence_datasets.tsv`) to generate stratified JSONL files (`final_train.jsonl`, `final_val.jsonl`, `final_test.jsonl`) for both gene expression and protein kinase activity domains. The final test files were manually renamed to `final_expression_test.jsonl` and `final_kinase_test.jsonl` respectively and copied to the root folder of the repository for further processing.
+2.  **Model Testing:**
 
-        `tsv_file_path = 'classification_results_gene_expression_4.tsv'  # Update as needed`
+    -   `testing_model.py` utilized the generated test JSONL files to perform five independent classification runs per data type, producing TSV files (`final_classification_results_*_run*.tsv`) capturing the model's classifications.
+3.  **Metric Assessment:**
 
--   **Debugging Output**:
+    -   `metrics_assessment.py` analyzed the classification results from all runs to compute and summarize precision, recall, and F1-scores, outputting detailed metrics summary files (`final_metrics_summary_*_Expression.tsv` and `final_metrics_summary_Protein_Kinase.tsv`).
 
-    -   The script prints out detailed information about missing prompts, potential early termination, and duplicates.
+* * * * *
 
-General Notes
--------------
+Dependencies
+------------
 
--   Ensure all file paths point to the correct locations of your data files.
+The scripts relied on the following Python packages:
 
--   Adjust filtering criteria and data type variables to suit your specific dataset and requirements.
+-   `pandas` for data manipulation.
+-   `scikit-learn` (`MultiLabelBinarizer`) for label processing.
+-   `iterstrat` (`MultilabelStratifiedShuffleSplit`) for stratified data splitting.
+-   `openai` for interacting with the OpenAI API during model testing.
+-   `tenacity` for implementing retry logic in API calls.
+-   `tqdm` for progress visualization during processing.
+-   `json`, `os`, `sys`, `logging`, `argparse`, `statistics`, `concurrent.futures`, `threading`, `time` for various auxiliary functionalities.
 
--   These scripts assume specific column names in your data files; ensure your data files have the necessary columns.
+Ensure all dependencies were installed in the Python environment prior to executing the scripts.
 
--   The scripts use pandas for data manipulation; make sure you have it installed:
+* * * * *
 
-    `pip install pandas`
+Logging and Error Handling
+--------------------------
 
-Contact
--------
+Each script incorporated comprehensive logging mechanisms to document processing steps, successes, and any encountered issues. Log files (`final_data_extraction.log`, `final_testing_model_parallel.log`) captured detailed information, facilitating troubleshooting and verification of the workflows.
 
-For questions or concerns, please open an issue in this repository.
+* * * * *
+
+Conclusion
+----------
+
+This repository serves as a detailed archival record of the data preparation and evaluation processes employed in our research on biocuration-relevant sentence classification within gene expression and protein kinase activity domains.
+
+For further inquiries or detailed methodological explanations, please refer to the corresponding sections of our scientific paper.

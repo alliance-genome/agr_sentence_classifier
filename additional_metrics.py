@@ -1,22 +1,54 @@
+#!/usr/bin/env python
+
 import pandas as pd
-import glob
 import os
 import sys
-import statistics
 import argparse
-import logging
+import statistics
 
 # ------------------------------
 # Configuration
 # ------------------------------
 
-TSV_PATTERN = 'classification_results_*_run*.tsv'
+# Define the data types and their corresponding TSV files for runs 1 to 5
+DATA_TYPES = {
+    "Gene Expression": [
+        "final_classification_results_gene_expression_run1.tsv",
+        "final_classification_results_gene_expression_run2.tsv",
+        "final_classification_results_gene_expression_run3.tsv",
+        "final_classification_results_gene_expression_run4.tsv",
+        "final_classification_results_gene_expression_run5.tsv"
+    ],
+    "Protein Kinase": [
+        "final_classification_results_protein_kinase_activity_run1.tsv",
+        "final_classification_results_protein_kinase_activity_run2.tsv",
+        "final_classification_results_protein_kinase_activity_run3.tsv",
+        "final_classification_results_protein_kinase_activity_run4.tsv",
+        "final_classification_results_protein_kinase_activity_run5.tsv"
+    ]
+}
 
+# Define tasks with their corresponding response phrases
 TASKS = {
-    "task1_fully_curatable": "This sentence contains both fully and partially curatable data as well as terms related to curation.",
-    "task2_partially_curatable": "This sentence does not contain fully curatable data but it does contain partially curatable data and terms related to curation.",
-    "task3_language_related": "This sentence does not contain fully or partially curatable data but does contain terms related to curation.",
-    "task4_not_curatable": "This sentence does not contain fully or partially curatable data or terms related to curation."
+    "Task1_Fully_Curatable": [
+        "This sentence only contains fully curatable data."
+    ],
+    "Task2_Fully_or_Partially_Curatable": [
+        "This sentence only contains fully curatable data.",
+        "This sentence only contains partially curatable data."
+    ],
+    "Task3_Fully_Partially_or_Language_Related": [
+        "This sentence only contains fully curatable data.",
+        "This sentence only contains partially curatable data.",
+        "This sentence is not fully or partially curatable, but it contains terms related to the datatype."
+    ]
+}
+
+# Define exact response phrase to label mapping
+RESPONSE_LABELS = {
+    "This sentence only contains fully curatable data.": "fully curated",
+    "This sentence only contains partially curatable data.": "partially curated",
+    "This sentence is not fully or partially curatable, but it contains terms related to the datatype.": "language related"
 }
 
 # ------------------------------
@@ -24,77 +56,133 @@ TASKS = {
 # ------------------------------
 
 def calculate_metrics(tp, fp, fn):
+    """
+    Calculate precision, recall, and F1-score.
+
+    Args:
+        tp (int): True Positives
+        fp (int): False Positives
+        fn (int): False Negatives
+
+    Returns:
+        tuple: precision, recall, f1_score
+    """
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall    = tp / (tp + fn) if (tp + fn) > 0 else 0
     f1_score  = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     return precision, recall, f1_score
 
-def determine_task(response):
-    response = response.strip().lower()
-    for task_name, exact_phrase in TASKS.items():
-        if exact_phrase.lower() in response:
-            return task_name
-    return "Unknown"
+def determine_task(response, task_responses):
+    """
+    Determine if the response belongs to the task based on predefined responses.
+
+    Args:
+        response (str): The response string to check.
+        task_responses (list): List of response strings associated with the task.
+
+    Returns:
+        bool: True if response matches any in task_responses, else False.
+    """
+    return response.strip() in task_responses
+
+def get_response_label(response):
+    """
+    Map a response phrase to its corresponding label using exact matching.
+
+    Args:
+        response (str): The response string.
+
+    Returns:
+        str: The label corresponding to the response.
+    """
+    return RESPONSE_LABELS.get(response.strip(), "unknown")
 
 def process_tsv_file(file_path, verbose=False):
-    counts = {task: {"TP": 0, "FP": 0, "FN": 0} for task in TASKS.keys()}
+    """
+    Process a single TSV file and calculate metrics for each task.
+
+    Args:
+        file_path (str): Path to the TSV file.
+        verbose (bool): If True, print detailed logs.
+
+    Returns:
+        tuple: run_metrics (dict), counts (dict), negative_count (int)
+    """
+    # Initialize metrics and counts
+    metrics = {task: {"TP": 0, "FP": 0, "FN": 0} for task in TASKS.keys()}
+    counts = {task: {response: 0 for response in TASKS[task]} for task in TASKS.keys()}
+    negative_count = 0
     skipped_rows = 0
+
     try:
         df = pd.read_csv(file_path, sep='\t')
-        logging.info(f"Processing file: {file_path} with {len(df)} entries.")
+        print(f"Processing file: {file_path} with {len(df)} entries.")
     except FileNotFoundError:
-        logging.error(f"Error: File {file_path} not found.")
-        return counts
+        print(f"Error: File {file_path} not found.")
+        return metrics, counts, negative_count
     except pd.errors.EmptyDataError:
-        logging.error(f"Error: File {file_path} is empty.")
-        return counts
+        print(f"Error: File {file_path} is empty.")
+        return metrics, counts, negative_count
     except pd.errors.ParserError as e:
-        logging.error(f"Error parsing {file_path}: {e}")
-        return counts
+        print(f"Error parsing {file_path}: {e}")
+        return metrics, counts, negative_count
 
     for index, row in df.iterrows():
-        expected = row['expected_response']
-        assistant = row['assistant_response']
-        expected_task = determine_task(expected)
-        predicted_task = determine_task(assistant)
+        expected = row.get('expected_response', '').strip()
+        assistant = row.get('assistant_response', '').strip()
 
-        if expected_task == "Unknown" or predicted_task == "Unknown":
-            logging.warning(f"Row {index+1}: Skipped due to Unknown task.")
+        if not expected or not assistant:
+            print(f"Row {index+1}: Missing expected or assistant response. Skipping.")
             skipped_rows += 1
             continue
 
-        for task_name in TASKS.keys():
-            if expected_task == task_name:
-                if predicted_task == task_name:
-                    counts[task_name]["TP"] += 1
-                    classification = "TP"
-                else:
-                    counts[task_name]["FN"] += 1
-                    classification = "FN"
-            else:
-                if predicted_task == task_name:
-                    counts[task_name]["FP"] += 1
-                    classification = "FP"
-                # No need to track TN as it's not used
+        matched_any_task = False
+
+        # Iterate through each task to update counts
+        for task_name, responses in TASKS.items():
+            expected_in_task = determine_task(expected, responses)
+            assistant_in_task = determine_task(assistant, responses)
+
+            if expected_in_task:
+                # Identify which response phrase it matched
+                counts[task_name][expected] += 1
+                matched_any_task = True
+
+            if expected_in_task and assistant_in_task:
+                metrics[task_name]["TP"] += 1
+            elif not expected_in_task and assistant_in_task:
+                metrics[task_name]["FP"] += 1
+            elif expected_in_task and not assistant_in_task:
+                metrics[task_name]["FN"] += 1
 
             if verbose:
-                logging.info(f"Task: {task_name.replace('_', ' ').title()}")
-                logging.info(f"  Expected: \"{expected}\"")
-                logging.info(f"  Assistant: \"{assistant}\"")
-                logging.info(f"  Classification: {classification}")
-                logging.info("-" * 60)
+                classification = ""
+                if expected_in_task and assistant_in_task:
+                    classification = "TP"
+                elif not expected_in_task and assistant_in_task:
+                    classification = "FP"
+                elif expected_in_task and not assistant_in_task:
+                    classification = "FN"
+                print(f"Row {index+1}:")
+                print(f"  Sentence: \"{row.get('sentence', '').strip()}\"")
+                print(f"  Expected: \"{expected}\"")
+                print(f"  Assistant: \"{assistant}\"")
+                print(f"  Task: {task_name}")
+                print(f"  Classification: {classification}")
+                print("-" * 60)
+
+        if not matched_any_task:
+            negative_count += 1
 
     if skipped_rows > 0:
-        logging.info(f"Total Skipped Rows in {file_path}: {skipped_rows}")
+        print(f"Total Skipped Rows in {file_path}: {skipped_rows}")
 
-    return counts
-
-def calculate_run_metrics(counts):
+    # Calculate metrics for each task
     run_metrics = {}
-    for task_name, count in counts.items():
-        tp = count["TP"]
-        fp = count["FP"]
-        fn = count["FN"]
+    for task_name, counts_task in metrics.items():
+        tp = counts_task["TP"]
+        fp = counts_task["FP"]
+        fn = counts_task["FN"]
         precision, recall, f1_score = calculate_metrics(tp, fp, fn)
         run_metrics[task_name] = {
             "TP": tp,
@@ -104,101 +192,55 @@ def calculate_run_metrics(counts):
             "Recall": recall,
             "F1_Score": f1_score
         }
-    return run_metrics
 
-def calculate_mean_std(metrics_per_run, data_type, verbose=False):
+    # Informative Printout after processing the file
+    print(f"\nCompleted processing {file_path}:")
+    for task, stats in run_metrics.items():
+        print(f"  {task.replace('_', ' ')} - Precision: {stats['Precision']:.3f}, Recall: {stats['Recall']:.3f}, F1 Score: {stats['F1_Score']:.3f}")
+    print(f"  Negative Examples (Do not fit any task): {negative_count}")
+    print("=" * 60 + "\n")
+
+    return run_metrics, counts, negative_count
+
+def calculate_mean_std(metrics_per_run, counts_per_run, negative_counts, data_type, verbose=False):
+    """
+    Calculate sum counts and mean and standard deviation for each metric across runs.
+
+    Args:
+        metrics_per_run (list): List of metrics dictionaries per run.
+        counts_per_run (list): List of counts dictionaries per run.
+        negative_counts (list): List of negative counts per run.
+        data_type (str): The data type being processed.
+        verbose (bool): If True, print detailed logs.
+
+    Returns:
+        dict: Summary of sum counts for each task's response phrases and averaged metrics.
+    """
     summary = {}
+    total_negative = sum(negative_counts)
+    total_runs = len(metrics_per_run)
+
     for task_name in TASKS.keys():
+        response_counts = {response: 0 for response in TASKS[task_name]}
+        for run_counts in counts_per_run:
+            for response_phrase in TASKS[task_name]:
+                response_counts[response_phrase] += run_counts[task_name][response_phrase]
+
+        # Calculate metrics mean and std dev
         precisions = [run_metrics[task_name]["Precision"] for run_metrics in metrics_per_run]
         recalls = [run_metrics[task_name]["Recall"] for run_metrics in metrics_per_run]
         f1_scores = [run_metrics[task_name]["F1_Score"] for run_metrics in metrics_per_run]
 
-        if verbose and len(metrics_per_run) > 0:
-            logging.info(f"\nDetailed Math for {task_name.replace('_',' ').title()} in {data_type}:")
-            for i, run_metrics_dict in enumerate(metrics_per_run, 1):
-                tp = run_metrics_dict[task_name]["TP"]
-                fp = run_metrics_dict[task_name]["FP"]
-                fn = run_metrics_dict[task_name]["FN"]
-
-                # Log per-run counts
-                logging.info(f"Run {i}: TP={tp}, FP={fp}, FN={fn}")
-
-                # Precision math
-                if tp + fp > 0:
-                    logging.info(f"  Precision (Run {i}) = TP / (TP + FP) = {tp} / ({tp}+{fp}) = {tp/(tp+fp):.3f}")
-                else:
-                    logging.info(f"  Precision (Run {i}) = 0 (no positive predictions)")
-
-                # Recall math
-                if tp + fn > 0:
-                    logging.info(f"  Recall (Run {i}) = TP / (TP + FN) = {tp} / ({tp}+{fn}) = {tp/(tp+fn):.3f}")
-                else:
-                    logging.info(f"  Recall (Run {i}) = 0 (no actual positives)")
-
-                # F1 Score math
-                precision_val = run_metrics_dict[task_name]["Precision"]
-                recall_val = run_metrics_dict[task_name]["Recall"]
-                if (precision_val + recall_val) > 0:
-                    logging.info(f"  F1 Score (Run {i}) = 2 * Precision * Recall / (Precision + Recall) = 2 * {precision_val:.3f} * {recall_val:.3f} / ({precision_val:.3f}+{recall_val:.3f}) = {f1_scores[i-1]:.3f}")
-                else:
-                    logging.info(f"  F1 Score (Run {i}) = 0 (no positive predictions or actual positives)")
-
-            # Compute mean and std dev for each metric
-            # Precision
-            if len(precisions) > 0:
-                mean_p = statistics.mean(precisions)
-                logging.info(f"\nPrecision Mean = Average of {precisions} = {mean_p:.3f}")
-                if len(precisions) > 1:
-                    std_p = statistics.stdev(precisions)
-                    logging.info(f"Precision Std Dev = Stdev of {precisions} = {std_p:.3f}")
-                else:
-                    std_p = 0
-                    logging.info("Only one run, no Std Dev for Precision.")
-            else:
-                mean_p = 0
-                std_p = 0
-                logging.info("No precision values.")
-
-            # Recall
-            if len(recalls) > 0:
-                mean_r = statistics.mean(recalls)
-                logging.info(f"\nRecall Mean = Average of {recalls} = {mean_r:.3f}")
-                if len(recalls) > 1:
-                    std_r = statistics.stdev(recalls)
-                    logging.info(f"Recall Std Dev = Stdev of {recalls} = {std_r:.3f}")
-                else:
-                    std_r = 0
-                    logging.info("Only one run, no Std Dev for Recall.")
-            else:
-                mean_r = 0
-                std_r = 0
-                logging.info("No recall values.")
-
-            # F1 Score
-            if len(f1_scores) > 0:
-                mean_f1 = statistics.mean(f1_scores)
-                logging.info(f"\nF1 Score Mean = Average of {f1_scores} = {mean_f1:.3f}")
-                if len(f1_scores) > 1:
-                    std_f1 = statistics.stdev(f1_scores)
-                    logging.info(f"F1 Score Std Dev = Stdev of {f1_scores} = {std_f1:.3f}")
-                else:
-                    std_f1 = 0
-                    logging.info("Only one run, no Std Dev for F1.")
-            else:
-                mean_f1 = 0
-                std_f1 = 0
-                logging.info("No F1 values.")
-
-        else:
-            # If not verbose or no runs
-            mean_p = statistics.mean(precisions) if precisions else 0
-            std_p = statistics.stdev(precisions) if len(precisions) > 1 else 0
-            mean_r = statistics.mean(recalls) if recalls else 0
-            std_r = statistics.stdev(recalls) if len(recalls) > 1 else 0
-            mean_f1 = statistics.mean(f1_scores) if f1_scores else 0
-            std_f1 = statistics.stdev(f1_scores) if len(f1_scores) > 1 else 0
+        mean_p = statistics.mean(precisions) if precisions else 0
+        std_p = statistics.stdev(precisions) if len(precisions) > 1 else 0
+        mean_r = statistics.mean(recalls) if recalls else 0
+        std_r = statistics.stdev(recalls) if len(recalls) > 1 else 0
+        mean_f1 = statistics.mean(f1_scores) if f1_scores else 0
+        std_f1 = statistics.stdev(f1_scores) if len(f1_scores) > 1 else 0
 
         summary[task_name] = {
+            "Response_Counts": response_counts,
+            "Entries_count_total": sum(response_counts.values()),
             "Precision_mean": round(mean_p, 3),
             "Precision_std_dev": round(std_p, 3),
             "Recall_mean": round(mean_r, 3),
@@ -207,66 +249,107 @@ def calculate_mean_std(metrics_per_run, data_type, verbose=False):
             "F1_Score_std_dev": round(std_f1, 3)
         }
 
+    # Calculate averages for negative examples
+    mean_negatives = statistics.mean(negative_counts) if negative_counts else 0
+    std_negatives = statistics.stdev(negative_counts) if len(negative_counts) > 1 else 0
+
+    summary["Negative_Examples"] = {
+        "Entries_count_mean": round(mean_negatives, 1),
+        "Entries_count_std_dev": round(std_negatives, 1)
+    }
+
     return summary
 
 def print_metrics_summary(metrics_summary, data_type):
-    logging.info(f"\nMetrics Summary for Data Type: {data_type}")
-    print(f"\nMetrics Summary for Data Type: {data_type}")
-    for task_name, stats in metrics_summary.items():
-        task_display_name = task_name.replace('_', ' ').title()
-        logging.info(f"\n{task_display_name}:")
-        print(f"\n{task_display_name}:")
-        logging.info(f"  Precision: {stats['Precision_mean']} (± {stats['Precision_std_dev']})")
-        logging.info(f"  Recall: {stats['Recall_mean']} (± {stats['Recall_std_dev']})")
-        logging.info(f"  F1 Score: {stats['F1_Score_mean']} (± {stats['F1_Score_std_dev']})")
+    """
+    Print the metrics summary in a clear and structured manner.
 
-        print(f"  Precision: {stats['Precision_mean']} (± {stats['Precision_std_dev']})")
-        print(f"  Recall: {stats['Recall_mean']} (± {stats['Recall_std_dev']})")
-        print(f"  F1 Score: {stats['F1_Score_mean']} (± {stats['F1_Score_std_dev']})")
-    logging.info("")
-    print("")
+    Args:
+        metrics_summary (dict): Summary of metrics per task.
+        data_type (str): The data type being processed.
+    """
+    print(f"\n{'='*60}")
+    print(f"Metrics Summary for Data Type: {data_type}")
+    print(f"{'='*60}")
+    for task_name, stats in metrics_summary.items():
+        if task_name != "Negative_Examples":
+            task_display_name = task_name.replace('_', ' ').title()
+            combined_types = len(TASKS[task_name])
+            print(f"\n{task_display_name}:")
+            print(f"  Combined {combined_types} types of responses to form {task_display_name}:")
+            for response_phrase, count in stats["Response_Counts"].items():
+                label = get_response_label(response_phrase)
+                print(f"    Combined {count} entries from {label}.")
+            print(f"  Entries Count Total: {stats['Entries_count_total']}")
+            print(f"  Precision: {stats['Precision_mean']} (± {stats['Precision_std_dev']})")
+            print(f"  Recall:    {stats['Recall_mean']} (± {stats['Recall_std_dev']})")
+            print(f"  F1 Score:  {stats['F1_Score_mean']} (± {stats['F1_Score_std_dev']})")
+        else:
+            print(f"\nNegative Examples (Do not fit any task):")
+            print(f"  Entries Count - Mean: {stats['Entries_count_mean']}, Std Dev: {stats['Entries_count_std_dev']}")
+    print(f"{'='*60}\n")
 
 def save_metrics_summary(metrics_summary, data_type):
+    """
+    Save the metrics summary to a TSV file.
+
+    Args:
+        metrics_summary (dict): Summary of metrics per task.
+        data_type (str): The data type being processed.
+    """
     rows = []
     for task_name, stats in metrics_summary.items():
-        row = {
-            "Task": task_name.replace('_', ' ').title(),
-            "Precision_mean": stats["Precision_mean"],
-            "Precision_std_dev": stats["Precision_std_dev"],
-            "Recall_mean": stats["Recall_mean"],
-            "Recall_std_dev": stats["Recall_std_dev"],
-            "F1_Score_mean": stats["F1_Score_mean"],
-            "F1_Score_std_dev": stats["F1_Score_std_dev"]
-        }
-        rows.append(row)
+        if task_name != "Negative_Examples":
+            row = {
+                "Task": task_name.replace('_', ' ').title(),
+                "Precision_mean": stats["Precision_mean"],
+                "Precision_std_dev": stats["Precision_std_dev"],
+                "Recall_mean": stats["Recall_mean"],
+                "Recall_std_dev": stats["Recall_std_dev"],
+                "F1_Score_mean": stats["F1_Score_mean"],
+                "F1_Score_std_dev": stats["F1_Score_std_dev"],
+                "Entries_count_total": stats["Entries_count_total"]
+            }
+            # Add counts from each response type as separate columns
+            for response_phrase, count in stats["Response_Counts"].items():
+                label = get_response_label(response_phrase)
+                column_name = f"Combined_{label.replace(' ', '_')}_count"
+                row[column_name] = count
+            rows.append(row)
+        else:
+            row = {
+                "Task": "Negative Examples",
+                "Precision_mean": "-",
+                "Precision_std_dev": "-",
+                "Recall_mean": "-",
+                "Recall_std_dev": "-",
+                "F1_Score_mean": "-",
+                "F1_Score_std_dev": "-",
+                "Entries_count_total": "-"
+            }
+            # Add counts from each response type as separate columns (none for negative examples)
+            row["Combined_fully_curated_count"] = "-"
+            row["Combined_partially_curated_count"] = "-"
+            row["Combined_language_related_count"] = "-"
+            rows.append(row)
 
     df_summary = pd.DataFrame(rows)
-    output_metrics_file_path = f'additional_metrics_summary_{data_type.replace(" ", "_")}.tsv'
+    data_type_filename = data_type.replace(' ', '_')
+    output_metrics_file_path = f'final_metrics_summary_{data_type_filename}.tsv'
     df_summary.to_csv(output_metrics_file_path, sep='\t', index=False)
-    logging.info(f"Successfully saved metrics summary to {output_metrics_file_path}\n")
     print(f"Successfully saved metrics summary to {output_metrics_file_path}\n")
 
 def setup_logging():
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
-    fh = logging.FileHandler('metrics_calculation.log', mode='w')
-    fh.setLevel(logging.INFO)
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    """
+    Placeholder function since we're using print statements.
+    """
+    pass
 
 def main():
-    setup_logging()
-
+    """
+    Main function to parse arguments and process TSV files.
+    """
+    # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Calculate Precision, Recall, and F1 Score for classification tasks.')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose mode for detailed output.')
     args = parser.parse_args()
@@ -274,54 +357,40 @@ def main():
     verbose = args.verbose
 
     if verbose:
-        logging.info("Verbose mode enabled.\n")
         print("Verbose mode enabled.\n")
 
-    tsv_files = glob.glob(os.path.join('.', TSV_PATTERN))
+    # Initialize metrics_per_data_type
+    metrics_per_data_type = {data_type: [] for data_type in DATA_TYPES.keys()}
+    counts_per_data_type = {data_type: [] for data_type in DATA_TYPES.keys()}
+    negative_counts_per_data_type = {data_type: [] for data_type in DATA_TYPES.keys()}
 
-    if not tsv_files:
-        logging.error("No TSV files found matching the pattern.")
-        print("No TSV files found matching the pattern.")
-        sys.exit(1)
+    # Process each data type
+    for data_type, files in DATA_TYPES.items():
+        print(f"\n{'='*60}")
+        print(f"Processing Data Type: {data_type}")
+        print(f"{'='*60}\n")
 
-    data_types = {}
-    for file_path in tsv_files:
-        filename = os.path.basename(file_path)
-        try:
-            parts = filename.split('_')
-            run_part = parts[-1]  # 'run1.tsv'
-            run_number = run_part.split('.')[0]  # 'run1'
-            data_type_parts = parts[2:-1]
-            data_type = ' '.join(data_type_parts).title()
-            logging.debug(f"Extracted data_type: {data_type} from filename: {filename}")
-            if data_type not in data_types:
-                data_types[data_type] = []
-            data_types[data_type].append(file_path)
-        except Exception as e:
-            logging.error(f"Error parsing filename {filename}: {e}")
-            print(f"Error parsing filename {filename}: {e}")
-            continue
-
-    metrics_per_data_type = {data_type: [] for data_type in data_types.keys()}
-
-    for data_type, files in data_types.items():
-        logging.info(f"\nProcessing Data Type: {data_type}")
-        print(f"\nProcessing Data Type: {data_type}")
-
-        for file_path in files:
-            counts = process_tsv_file(file_path, verbose)
-            run_metrics = calculate_run_metrics(counts)
+        for run_number, file_path in enumerate(files, 1):
+            print(f"Processing Run {run_number}: {file_path}")
+            run_metrics, counts, negative_count = process_tsv_file(file_path, verbose)
             metrics_per_data_type[data_type].append(run_metrics)
+            counts_per_data_type[data_type].append(counts)
+            negative_counts_per_data_type[data_type].append(negative_count)
 
+        # Calculate sum counts and mean/std dev for the data type
         if metrics_per_data_type[data_type]:
-            metrics_summary = calculate_mean_std(metrics_per_data_type[data_type], data_type, verbose=verbose)
+            metrics_summary = calculate_mean_std(
+                metrics_per_run=metrics_per_data_type[data_type],
+                counts_per_run=counts_per_data_type[data_type],
+                negative_counts=negative_counts_per_data_type[data_type],
+                data_type=data_type,
+                verbose=verbose
+            )
             print_metrics_summary(metrics_summary, data_type)
             save_metrics_summary(metrics_summary, data_type)
         else:
-            logging.warning(f"No valid runs processed for {data_type}.")
             print(f"No valid runs processed for {data_type}.")
 
-    logging.info("All metrics have been calculated and saved successfully.")
     print("All metrics have been calculated and saved successfully.")
 
 if __name__ == "__main__":

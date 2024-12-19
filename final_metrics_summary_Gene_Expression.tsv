@@ -1,0 +1,5 @@
+Task	Precision_mean	Precision_std_dev	Recall_mean	Recall_std_dev	F1_Score_mean	F1_Score_std_dev	Entries_count_total	Combined_fully_curated_count	Combined_partially_curated_count	Combined_language_related_count
+Task1 Fully Curatable	0.867	0.012	0.991	0.012	0.925	0.009	230	230		
+Task2 Fully Or Partially Curatable	0.951	0.007	0.933	0.008	0.942	0.007	330	230	100	
+Task3 Fully Partially Or Language Related	0.966	0.0	0.949	0.0	0.957	0.0	590	230	100	260
+Negative Examples	-	-	-	-	-	-	-	-	-	-
