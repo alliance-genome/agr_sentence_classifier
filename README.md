@@ -124,7 +124,7 @@ This script evaluated the performance of the language models by calculating prec
     For each task, the script computed precision, recall, and F1-scores across all five runs, calculating the mean and standard deviation for each metric to assess consistency and reliability.
 
 -   **Negative Examples Reporting:**\
-    Quantified entries that did not fit into any of the defined tasks, providing insights into the model's handling of irrelevant or ambiguous data. These data were not included in the graphs or discussion of the publication.
+    Quantified entries that did not fit into any of the defined tasks.
 
 **Output Files:** For each data type, the script generated a comprehensive metrics summary TSV file:
 
@@ -148,9 +148,6 @@ This script evaluated the performance of the language models by calculating prec
     -   F1 Score (mean ± standard deviation)
 -   **Negative Examples:**\
     Mean and standard deviation of entries not fitting any task.
-
-**Usage Considerations:**\
-The metrics summaries provided a quantitative evaluation of model performance, facilitating the comparison of classification accuracy and reliability across different tasks and data types.
 
 * * * * *
 
@@ -189,7 +186,7 @@ Ensure all dependencies were installed in the Python environment prior to execut
 Logging and Error Handling
 --------------------------
 
-Each script incorporated comprehensive logging mechanisms to document processing steps, successes, and any encountered issues. Log files (`final_data_extraction.log`, `final_testing_model_parallel.log`) captured detailed information, facilitating troubleshooting and verification of the workflows.
+Each script incorporated logging mechanisms to document processing steps, successes, and any encountered issues. Log files (`final_data_extraction.log`, `final_testing_model_parallel.log`) captured detailed information, facilitating troubleshooting and verification of the workflows.
 
 * * * * *
 
